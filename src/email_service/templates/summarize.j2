@@ -1,0 +1,20 @@
+Analyze this email and return ONLY valid JSON.
+
+From: {{ from_name or "Unknown" }} <{{ from_address }}>
+Subject: {{ subject or "(no subject)" }}
+Date: {{ date }}
+
+--- EMAIL BODY ---
+{{ body }}
+--- END ---
+
+Return this exact JSON structure, nothing else:
+{
+    "summary": "2-3 sentence summary of what this email is about",
+    "category": "work | personal | newsletter | notification | finance | social | spam | other",
+    "priority": "high | medium | low",
+    "sentiment": "positive | negative | neutral | urgent",
+    "action_required": true or false,
+    "action_items": ["action item 1", "action item 2"] or [],
+    "key_people": ["Person name"] or []
+}

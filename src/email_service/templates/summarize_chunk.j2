@@ -1,0 +1,13 @@
+Summarize this section of a long email. This is part {{ chunk_index }} of {{ total_chunks }}.
+
+From: {{ from_name or "Unknown" }}
+Subject: {{ subject or "(no subject)" }}
+
+--- SECTION {{ chunk_index }} OF {{ total_chunks }} ---
+{{ content }}
+--- END SECTION ---
+
+Return ONLY valid JSON, nothing else:
+{
+    "chunk_summary": "2-3 sentence summary of THIS section only"
+}
