@@ -9,6 +9,7 @@ HELP_TEXT = """Available commands:
 import start <account> [count|all]
 import pause <account>
 import resume <account>
+import retry <account>
 import status
 import history <account>
 accounts
@@ -54,6 +55,9 @@ def _handle_import(args: list[str]) -> str:
 
     if action == "history":
         return _import_history(args[1:])
+
+    if action == "retry":
+        return _import_retry(args[1:])
 
     return f"Unknown import action {action}\nUsage: import <start|pause|resume|status>"
 
@@ -221,3 +225,28 @@ def _accounts_info() -> str:
         )
     except Exception as e:
         return f"Failed to get account info: {e}"
+
+
+def _import_retry(args: list[str]) -> str:
+    if not args:
+        return "Usage: import retry <account_email>"
+
+    account_id = args[0]
+    result = import_coordinator.retry_failed_tasks(account_id)
+
+    if not result:
+        return f"No failed imports found for {account_id}"
+
+    import threading
+    from email_service.services import import_worker
+
+    thread = threading.Thread(
+        target=import_worker.run_job, args=(result["job_id"],), daemon=True
+    )
+    thread.start()
+
+    return (
+        f"Retrying {result['reset_count']} failed emails\n"
+        f"Account: {account_id}\n"
+        f"Job #{result['job_id']} restarted"
+    )

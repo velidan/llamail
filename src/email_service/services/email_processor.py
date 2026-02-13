@@ -110,6 +110,9 @@ def _process_chunked(
     chunks = chunker.chunk_text(request.body_text)
     logger.info(f"{email_id}: split into {len(chunks)} chunks")
 
+    # save parent email first so chunks can reference it in fk
+    _save_email(request, email_id, {}, is_chunked=True, chunk_count=len(chunks))
+
     # summarize every chuk
     chunk_summaries = []
     tokens_used = 0

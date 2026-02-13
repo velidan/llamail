@@ -147,3 +147,33 @@ def find_paused_job(account_id: str) -> int | None:
         return job.id if job else None
     finally:
         session.close()
+
+
+def retry_failed_tasks(account_id: str) -> dict | None:
+    session = get_session()
+    try:
+        job = (
+            session.query(ImportJob)
+            .filter(
+                ImportJob.account_id == account_id,
+                ImportJob.failed_count > 0,
+            )
+            .order_by(ImportJob.id.desc())
+            .first()
+        )
+        if not job:
+            return None
+
+        reset_count = (
+            session.query(ImportTask)
+            .filter(ImportTask.job_id == job.id, ImportTask.status == "failed")
+            .update({"status": "pending", "error": None, "retries": 0})
+        )
+
+        job.failed_count = 0
+        job.status = "pending"
+        session.commit()
+
+        return {"job_id": job.id, "reset_count": reset_count}
+    finally:
+        session.close()
