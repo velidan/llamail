@@ -23,5 +23,11 @@ class Settings(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 8080
 
+    gmail_credentials_path: Path = Path("credentials/client_secret.json")
+    gmail_token_path: Path = Path("credentials/token.json")
+    gmail_scopes: list[str] = ["https://www.googleapis.com/auth/gmail.readonly"]
+    import_batch_size: int = 50
+    import_max_retries: int = 3
+
 
 settings = Settings()

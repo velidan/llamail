@@ -7,6 +7,7 @@ class ProcessEmailRequest(BaseModel):
     account_id: str
     gmail_id: str
     thread_id: str | None = None
+    rfc822_message_id: str | None = None
 
     from_address: str
     from_name: str | None = None
@@ -24,6 +25,7 @@ class ProcessEmailRequest(BaseModel):
 class ProcessEmailResponse(BaseModel):
     status: str = "ok"
     email_id: str
+    gmail_link: str | None = None
     summary: str | None = None
     category: str | None = None
     priority: str | None = None
@@ -79,3 +81,12 @@ class DraftResponse(BaseModel):
     account_id: str
     suggestions: list[str] = []
     tokens_used: int = 0
+
+
+class TelegramCommandRequest(BaseModel):
+    text: str
+    chat_id: str | int
+
+
+class TelegramCommandResponse(BaseModel):
+    reply: str

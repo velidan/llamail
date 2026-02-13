@@ -84,6 +84,43 @@ class EmailChunk(Base):
     created_at = Column(DateTime, default=datetime.now)
 
 
+class ImportJob(Base):
+    __tablename__ = "import_jobs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    account_id = Column(String, nullable=False)
+    status = Column(String, nullable=False, default="pending")
+    total_emails = Column(Integer, default=0)
+    processed_count = Column(Integer, default=0)
+    failed_count = Column(Integer, default=0)
+    skipped_count = Column(Integer, default=0)
+    # it's a protection from a deadworker. It helps to understand the case when the worker died and the job is stopped but being at running status. Later on startup it will be checked and if it's running but hearbeat was say 5 or 10 min ago - it's dead and should reset the status to paused
+    last_heartbeat = Column(DateTime)
+
+    created_at = Column(DateTime, default=datetime.now)
+    started_at = Column(DateTime)
+    finished_at = Column(DateTime)
+
+
+class ImportTask(Base):
+    __tablename__ = "import_tasks"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    job_id = Column(
+        Integer,
+        ForeignKey("import_jobs.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    gmail_id = Column(String, nullable=False)
+    status = Column(String, nullable=False, default="pending")
+    error = Column(Text)
+    retries = Column(Integer, default=0)
+
+    created_at = Column(DateTime, default=datetime.now)
+    processed_at = Column(DateTime)
+
+
 # --- Engine & sesion ---
 def get_engine():
     settings.db_path.parent.mkdir(parents=True, exist_ok=True)

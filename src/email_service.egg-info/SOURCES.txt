@@ -11,13 +11,16 @@ src/email_service.egg-info/top_level.txt
 src/email_service/models/__init__.py
 src/email_service/models/database.py
 src/email_service/models/schemas.py
-src/email_service/routes/__init.py
 src/email_service/routes/__init__.py
 src/email_service/routes/health.py
+src/email_service/routes/imports.py
 src/email_service/routes/process.py
 src/email_service/services/__init__.py
 src/email_service/services/chunker.py
 src/email_service/services/email_processor.py
 src/email_service/services/embeddings.py
+src/email_service/services/gmail_client.py
+src/email_service/services/import_coordinator.py
+src/email_service/services/import_worker.py
 src/email_service/services/llm.py
 src/email_service/services/token_budget.py

@@ -2,6 +2,7 @@ import json
 import logging
 import time
 from pathlib import Path
+from urllib.parse import quote
 
 from jinja2 import Environment, FileSystemLoader
 
@@ -37,6 +38,13 @@ def process_email(request: ProcessEmailRequest) -> ProcessEmailResponse:
 
     result.processing_time_ms = int((time.time() - start) * 1000)
     return result
+
+
+def _build_gmail_link(rfc822_message_id: str | None) -> str | None:
+    if not rfc822_message_id:
+        return None
+    clean_id = rfc822_message_id.strip("<>")
+    return f"https://mail.google.com/mail/u/0/#search/rfc822msgid%3A{quote(clean_id)}"
 
 
 # --- single email path (short mail)
@@ -83,6 +91,7 @@ def _process_single(
 
     return ProcessEmailResponse(
         email_id=email_id,
+        gmail_link=_build_gmail_link(request.rfc822_message_id),
         summary=parsed.get("summary"),
         category=parsed.get("category"),
         priority=parsed.get("priority"),
@@ -177,6 +186,7 @@ def _process_chunked(
 
     return ProcessEmailResponse(
         email_id=email_id,
+        gmail_link=_build_gmail_link(request.rfc822_message_id),
         summary=parsed.get("summary"),
         category=parsed.get("category"),
         priority=parsed.get("priority"),
@@ -216,7 +226,7 @@ def _parse_json(raw: str) -> dict:
     return {"summary": text}
 
 
-# --- save email to sqplite ---
+# --- save to sqplite ---
 
 
 def _save_email(
@@ -256,9 +266,6 @@ def _save_email(
         session.commit()
     finally:
         session.close()
-
-
-# --- save a chunk to sqlite
 
 
 def _save_chunk(email_id: str, chunk: dict, summary: str):

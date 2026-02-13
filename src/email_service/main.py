@@ -1,11 +1,12 @@
 import logging
 from contextlib import asynccontextmanager
+from datetime import datetime, timedelta
 
 from fastapi import FastAPI
 
-from email_service.models.database import init_db
+from email_service.models.database import init_db, get_session, ImportJob
 from email_service.services.embeddings import init_vectorstore
-from email_service.routes import health, process
+from email_service.routes import health, process, imports, telegram
 from email_service.config import settings
 
 logging.basicConfig(level=logging.INFO)
@@ -19,15 +20,39 @@ async def lifespan(app: FastAPI):
     logger.info("Starting Emails Service...")
     init_db()
     init_vectorstore()
+    recover_stale_jobs()
     logger.info("Email Service ready!")
     yield
     logger.info("Shutting down Email Service...")
+
+
+def recover_stale_jobs():
+    session = get_session()
+    try:
+        stale_cutoff = datetime.now() - timedelta(minutes=5)
+        stale_jobs = (
+            session.query(ImportJob)
+            .filter(
+                ImportJob.status == "running",
+                (ImportJob.last_heartbeat < stale_cutoff)
+                | (ImportJob.last_heartbeat == None),
+            )
+            .all()
+        )
+        for job in stale_jobs:
+            logger.info(f"Recovering stale job {job.id} (account: {job.account_id})")
+            job.status = "paused"
+        session.commit()
+    finally:
+        session.close()
 
 
 app = FastAPI(title="Email Intelligence Service", version="2.0.0", lifespan=lifespan)
 
 app.include_router(health.router)
 app.include_router(process.router)
+app.include_router(imports.router)
+app.include_router(telegram.router)
 
 if __name__ == "__main__":
     import uvicorn
