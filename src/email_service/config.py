@@ -5,9 +5,12 @@ from pathlib import Path
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_prefix="EMAIL_")
 
-    ollama_url: str = "http://localhost:11434"
-    llm_model: str = "llama3.1:8b"
-    embedding_model: str = "nomic-embed-text"
+    llm_url: str = "http://localhost:11434"
+    embed_url: str = "http://localhost:11435"
+    
+    # These names can stay the same or be generic
+    llm_model: str = "llama3.1"
+    embedding_model: str = "nomic-v2"
 
     db_path: Path = Path("data/emails.db")
 

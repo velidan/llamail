@@ -10,7 +10,7 @@ router = APIRouter()
 
 @router.get("/health", response_model=HealthResponse)
 def health_check():
-    ollama_ok = llm.is_available()
+    llm_ok = llm.is_available()
     chroma_ok = embeddings.is_available()
 
     db_ok = False
@@ -22,11 +22,11 @@ def health_check():
     except Exception:
         pass
 
-    all_ok = ollama_ok and db_ok and chroma_ok
+    all_ok = llm_ok and db_ok and chroma_ok
 
     return HealthResponse(
         status="ok" if (all_ok) else "degraded",
-        ollama=ollama_ok,
+        llm=llm_ok,
         database=db_ok,
         chromadb=chroma_ok,
     )

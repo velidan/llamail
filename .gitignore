@@ -1,5 +1,5 @@
-  credentials/
-  data/
-  __pycache__/
-  *.egg-info/
-  *.pyc
+credentials/
+data/
+__pycache__/
+*.egg-info/
+*.pyc

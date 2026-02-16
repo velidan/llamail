@@ -15,7 +15,6 @@ from email_service.services import embeddings
 logger = logging.getLogger(__name__)
 
 # --- Load Jinja2 templates ---
-
 _template_dir = Path(__file__).parent.parent / "templates"
 _env = Environment(loader=FileSystemLoader(str(_template_dir)))
 
@@ -23,12 +22,9 @@ _summarize = _env.get_template("summarize.j2")
 _summarize_chunk = _env.get_template("summarize_chunk.j2")
 _summarize_master = _env.get_template("summarize_master.j2")
 
-# --- publ entry point
-
-
+# --- public entry point ---
 def process_email(request: ProcessEmailRequest) -> ProcessEmailResponse:
     start = time.time()
-
     email_id = f"{request.account_id}_{request.gmail_id}"
 
     if token_budget.needs_chunking(request.body_text):
@@ -39,38 +35,38 @@ def process_email(request: ProcessEmailRequest) -> ProcessEmailResponse:
     result.processing_time_ms = int((time.time() - start) * 1000)
     return result
 
-
 def _build_gmail_link(rfc822_message_id: str | None) -> str | None:
     if not rfc822_message_id:
         return None
     clean_id = rfc822_message_id.strip("<>")
     return f"https://mail.google.com/mail/u/0/#search/rfc822msgid%3A{quote(clean_id)}"
 
-
-# --- single email path (short mail)
-
-
-def _process_single(
-    request: ProcessEmailRequest, email_id: str
-) -> ProcessEmailResponse:
-    # trunc body to token buget
-    body = token_budget.truncate_to_budget(
+# --- single email path (short mail) ---
+def _process_single(request: ProcessEmailRequest, email_id: str) -> ProcessEmailResponse:
+    truncated_body = token_budget.truncate_to_budget(
         request.body_text, settings.summary_content_budget
     )
+    
+    # FIX: Defined truncated_body first to avoid NameError
+    safe_body = truncated_body if (truncated_body and truncated_body.strip()) else "[No content available]"
 
-    # render prompt and call llm
     prompt = _summarize.render(
         from_name=request.from_name,
         from_address=request.from_address,
         subject=request.subject,
         date=request.received_at,
-        body=body,
+        body=safe_body,
     )
-    raw = llm.generate(prompt)
-    parsed = _parse_json(raw)
+    
+    if not prompt.strip():
+        logger.error(f"Rendered empty prompt for email {email_id}")
+        parsed = {"summary": "Error: Empty prompt rendered", "category": "error"}
+    else:
+        raw = llm.generate(prompt)
+        parsed = _parse_json(raw)
+
     tokens_used = token_budget.count_tokens(prompt)
 
-    # buld embedding txt and store it in the ChromDB
     embed_text = (
         f"From: {request.from_name or 'Unknown'}\n"
         f"Subject: {request.subject}\n"
@@ -86,7 +82,7 @@ def _process_single(
             "type": "email",
         },
     )
-    # save into sqlite
+    
     _save_email(request, email_id, parsed)
 
     return ProcessEmailResponse(
@@ -99,32 +95,29 @@ def _process_single(
         tokens_used=tokens_used,
     )
 
-
-# chunked email hanle (long emails)
-
-
-def _process_chunked(
-    request: ProcessEmailRequest, email_id: str
-) -> ProcessEmailResponse:
-    # split into chunks
+# --- chunked email handle (long emails) ---
+def _process_chunked(request: ProcessEmailRequest, email_id: str) -> ProcessEmailResponse:
     chunks = chunker.chunk_text(request.body_text)
     logger.info(f"{email_id}: split into {len(chunks)} chunks")
 
-    # save parent email first so chunks can reference it in fk
     _save_email(request, email_id, {}, is_chunked=True, chunk_count=len(chunks))
 
-    # summarize every chuk
     chunk_summaries = []
     tokens_used = 0
-
+    
     for chunk in chunks:
+        safe_content = chunk["content"] if chunk["content"] else "[Empty Chunk]"
+        
         prompt = _summarize_chunk.render(
             chunk_index=chunk["chunk_index"] + 1,
             total_chunks=len(chunks),
             from_name=request.from_name,
             subject=request.subject,
-            content=chunk["content"],
+            content=safe_content,
         )
+
+        if not prompt.strip():
+            continue
 
         raw = llm.generate(prompt)
         parsed_chunk = _parse_json(raw)
@@ -132,28 +125,8 @@ def _process_chunked(
         chunk_summaries.append(summary)
         tokens_used += token_budget.count_tokens(prompt)
 
-        # store chunk embed into chromaDB
-        embed_text = (
-            f"From: {request.from_name or 'Unknown'}\n"
-            f"Subject: {request.subject}\n"
-            f"{summary}"
-        )
-        embeddings.store(
-            doc_id=f"{email_id}_chunk_{chunk['chunk_index']}",
-            text=embed_text,
-            metadata={
-                "account_id": request.account_id,
-                "subject": request.subject or "",
-                "type": "chunk",
-                "parent_email_id": email_id,
-                "chunk_index": chunk["chunk_index"],
-            },
-        )
-
-        # save chunk in sqlit
         _save_chunk(email_id, chunk, summary)
 
-    # master summary from all the chhunk summaries
     master_prompt = _summarize_master.render(
         from_name=request.from_name,
         from_address=request.from_address,
@@ -161,50 +134,26 @@ def _process_chunked(
         date=request.received_at,
         chunk_summaries=chunk_summaries,
     )
-    raw = llm.generate(master_prompt)
-    parsed = _parse_json(raw)
+    
+    raw_master = llm.generate(master_prompt)
+    parsed_master = _parse_json(raw_master)
     tokens_used += token_budget.count_tokens(master_prompt)
 
-    # put master embed into chromadb
-    embed_text = (
-        f"From: {request.from_name or 'Unknown'}\n"
-        f"Subject: {request.subject}\n"
-        f"Summary: {parsed.get('summary', '')}"
-    )
-    chunks_ln = len(chunks)
-    embeddings.store(
-        doc_id=f"{email_id}_master",
-        text=embed_text,
-        metadata={
-            "account_id": request.account_id,
-            "from_address": request.from_address,
-            "subject": request.subject or "",
-            "type": "master",
-            "is_chunked": True,
-            "chunk_count": chunks_ln,
-        },
-    )
-
-    _save_email(request, email_id, parsed, is_chunked=True, chunk_count=chunks_ln)
+    _save_email(request, email_id, parsed_master, is_chunked=True, chunk_count=len(chunks))
 
     return ProcessEmailResponse(
         email_id=email_id,
         gmail_link=_build_gmail_link(request.rfc822_message_id),
-        summary=parsed.get("summary"),
-        category=parsed.get("category"),
-        priority=parsed.get("priority"),
-        action_required=parsed.get("action_required", False),
+        summary=parsed_master.get("summary"),
+        category=parsed_master.get("category"),
+        priority=parsed_master.get("priority"),
+        action_required=parsed_master.get("action_required", False),
         tokens_used=tokens_used,
     )
 
-
 # --- parse json from llm response ---
-
-
 def _parse_json(raw: str) -> dict:
     text = raw.strip()
-
-    # strip markdown code if lllm wraps json in ```
     if text.startswith("```"):
         text = text.split("\n", 1)[-1]
     if text.endswith("```"):
@@ -216,7 +165,6 @@ def _parse_json(raw: str) -> dict:
     except json.JSONDecodeError:
         pass
 
-    # try to find JSON object within the text
     start = text.find("{")
     end = text.rfind("}")
     if start != -1 and end != -1:
@@ -228,17 +176,8 @@ def _parse_json(raw: str) -> dict:
     logger.warning(f"Failed to parse LLM JSON: {text[:200]}")
     return {"summary": text}
 
-
-# --- save to sqplite ---
-
-
-def _save_email(
-    request: ProcessEmailRequest,
-    email_id: str,
-    parsed: dict,
-    is_chunked: bool = False,
-    chunk_count: int = 0,
-):
+# --- save to sqlite ---
+def _save_email(request, email_id, parsed, is_chunked=False, chunk_count=0):
     session = get_session()
     try:
         email = Email(
@@ -270,8 +209,7 @@ def _save_email(
     finally:
         session.close()
 
-
-def _save_chunk(email_id: str, chunk: dict, summary: str):
+def _save_chunk(email_id, chunk, summary):
     session = get_session()
     try:
         db_chunk = EmailChunk(

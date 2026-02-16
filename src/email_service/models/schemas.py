@@ -36,7 +36,7 @@ class ProcessEmailResponse(BaseModel):
 
 class HealthResponse(BaseModel):
     status: str = "ok"
-    ollama: bool = False
+    llm: bool = False
     database: bool = False
     chromadb: bool = False
     version: str = "2.0.0"

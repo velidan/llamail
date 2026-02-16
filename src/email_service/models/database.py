@@ -152,6 +152,35 @@ def create_tables(engine):
                           """
             )
         )
+
+        # --- triggers to keep FTS5 in sync with emails table --0
+        conn.execute(
+            text(
+                """
+                CREATE TRIGGER IF NOT EXISTS emails_ai AFTER INSERT ON emails BEGIN INSERT INTO emails_fts(rowid, subject, body_text, summary, from_name, from_address) VALUES (new.rowid, new.subject, new.body_text, new.summary, new.from_name, new.from_address);
+                END;
+                """
+            )
+        )
+
+        conn.execute(
+            text(
+                """
+                CREATE TRIGGER IF NOT EXISTS emails_ad AFTER DELETE ON emails BEGIN INSERT INTO emails_fts(emails_fts, rowid, subject, body_text, summary, from_name, from_address) VALUES ('delete', old.rowid, old.subject, old.body_text, old.summary, old.from_name, old.from_address);
+                END;
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                CREATE TRIGGER IF NOT EXISTS emails_au AFTER UPDATE ON emails BEGIN INSERT INTO emails_fts(emails_fts, rowid, subject, body_text, summary, from_name, from_address) VALUES ('delete', old.rowid, old.subject, old.body_text, old.summary, old.from_name, old.from_address);
+                INSERT INTO emails_fts(rowid, subject, body_text, summary, from_name, from_address) VALUES (new.rowid, new.subject, new.body_text, new.summary, new.from_name, new.from_address);
+                END;
+                """
+            )
+        )
+
         conn.commit()
 
 
@@ -168,3 +197,12 @@ def init_db():
 
 def get_session():
     return SessionLocal()
+
+def rebuild_fts():
+    """Backfill FTS5 index from existing emails. One-time catch-up."""
+    session = get_session()
+    try:
+        session.execute(text("INSERT INTO emails_fts(emails_fts) VALUES ('rebuild')"))
+        session.commit()
+    finally:
+        session.close()

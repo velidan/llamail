@@ -1,0 +1,21 @@
+Answer the user's question based ONLY on the email context below.
+If the answer is not in the context, say "I don't have enough information to answer that."
+
+--- EMAIL CONTEXT ---
+{% for email in emails %}
+
+[{{ loop.index }}] From: {{ email.from_name or "Unknown" }} <{{ email.from_address}}>
+Subject: {{ email.subject or "(no subject)" }}
+Date: {{ email.received_at }}
+Summary: {{ email.summary or "(no summary)" }}
+
+{% endfor %}
+--- END CONTEXT ---
+
+Question: {{ question }}
+
+Return ONLY valid JSON:
+{
+    "answer": "Your answer here, referencing emails by [number] when relevant",
+    "confidence": "high | medium | low"
+}

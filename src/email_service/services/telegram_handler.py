@@ -1,17 +1,31 @@
 import logging
 
 from email_service.services import import_coordinator, gmail_client
+from email_service.services.search import hybrid_search
+from email_service.models.database import Email, get_session
+
+from email_service.services import llm
+from email_service.services.email_processor import _parse_json
+from pathlib import Path
+from jinja2 import Environment, FileSystemLoader
 
 logger = logging.getLogger(__name__)
 
+_template_dir = Path(__file__).parent.parent / "templates"
+_env = Environment(loader=FileSystemLoader(str(_template_dir)))
+_ask_template = _env.get_template("ask.j2")
+
 HELP_TEXT = """Available commands:
 
-import start <account> [count|all]
-import pause <account>
-import resume <account>
-import retry <account>
+search <query>
+ask <question>
+recent [count]
+import start {account} [count|all]
+import pause {account}
+import resume {account}
+import retry {account}
 import status
-import history <account>
+import history {account}
 accounts
 help"""
 
@@ -30,15 +44,26 @@ def handle_command(text: str) -> str:
     if command == "accounts":
         return _accounts_info()
 
+    if command == "search":
+        return _search(parts[1:])
+
+    if command == "recent":
+        return _recent(parts[1:])
+
     if command == "import":
         return _handle_import(parts[1:])
+
+    if command == "ask":
+        return _ask(parts[1:])
 
     return f"Unknown command: {command}\nType 'help' for available commands."
 
 
 def _handle_import(args: list[str]) -> str:
     if not args:
-        return "Usage: import <start|pause|resume|status>"
+        return (
+            "Please specify an action: start, pause, resume, status, history, or retry"
+        )
     action = args[0].lower()
 
     if action == "status":
@@ -59,7 +84,7 @@ def _handle_import(args: list[str]) -> str:
     if action == "retry":
         return _import_retry(args[1:])
 
-    return f"Unknown import action {action}\nUsage: import <start|pause|resume|status>"
+    return f"Unknown import action: {action}\nPlease specify an action: start, pause, resume, status, history, or retry"
 
 
 def _import_status() -> str:
@@ -103,7 +128,7 @@ def _import_status() -> str:
 
 def _import_start(args: list[str]) -> str:
     if not args:
-        return "Usage: import start <account_email> [count|all]\nExample: import start user@gmail.com"
+        return "Please provide the account email.\nExample: import start user@gmail.com"
 
     account_id = args[0]
     max_emails = 0
@@ -138,7 +163,7 @@ def _import_start(args: list[str]) -> str:
 
 def _import_pause(args: list[str]) -> str:
     if not args:
-        return "Usage: import pause <account_email>"
+        return "Please provide the account email.\nExample: import pause user@gmail.com"
 
     account_id = args[0]
     job_id = import_coordinator.find_active_job(account_id)
@@ -152,7 +177,9 @@ def _import_pause(args: list[str]) -> str:
 
 def _import_resume(args: list[str]) -> str:
     if not args:
-        return "Usage: import resume <account_email>"
+        return (
+            "Please provide the account email.\nExample: import resume user@gmail.com"
+        )
 
     account_id = args[0]
     job_id = import_coordinator.find_paused_job(account_id)
@@ -175,7 +202,9 @@ def _import_resume(args: list[str]) -> str:
 
 def _import_history(args: list[str]) -> str:
     if not args:
-        return "Usage: import history <account_email>"
+        return (
+            "Please provide the account email.\nExample: import history user@gmail.com"
+        )
 
     account_id = args[0]
     jobs = import_coordinator.list_all_jobs()
@@ -229,7 +258,7 @@ def _accounts_info() -> str:
 
 def _import_retry(args: list[str]) -> str:
     if not args:
-        return "Usage: import retry <account_email>"
+        return "Please provide the account email.\nExample: import retry user@gmail.com"
 
     account_id = args[0]
     result = import_coordinator.retry_failed_tasks(account_id)
@@ -250,3 +279,95 @@ def _import_retry(args: list[str]) -> str:
         f"Account: {account_id}\n"
         f"Job #{result['job_id']} restarted"
     )
+
+
+def _search(args: list[str]) -> str:
+    if not args:
+        return "Please provide a search query.\nExample: search budget Q2"
+
+    query = " ".join(args)
+    results = hybrid_search(query, max_results=5)
+
+    if not results:
+        return f"No results found for: {query}"
+
+    lines = [f"Search results for: {query}\n"]
+    for i, r in enumerate(results, 1):
+        date = r["received_at"].strftime("%Y-%m-%d") if r["received_at"] else "?"
+        sender = r["from_name"] or r["from_address"]
+        subject = r["subject"] or "(no subject)"
+        summary = r["summary"] or ""
+        if len(summary) > 120:
+            summary = summary[:120] + "..."
+        score_pct = int(r["score"] * 100)
+
+        lines.append(
+            f"{i}. [{score_pct}%] {subject}\n"
+            f"   From: {sender} | {date}\n"
+            f"   {summary}"
+        )
+
+    return "\n\n".join(lines)
+
+
+def _recent(args: list[str]) -> str:
+    count = 5
+    if args:
+        try:
+            count = int(args[0])
+            count = min(count, 20)
+        except ValueError:
+            return f"Invalid count: {args[0]}. Must be a number"
+
+    session = get_session()
+    try:
+        emails = (
+            session.query(Email).order_by(Email.received_at.desc()).limit(count).all()
+        )
+
+        if not emails:
+            return "No emails found."
+
+        lines = [f"Last {len(emails)} emails:\n"]
+        for e in emails:
+            date = e.received_at.strftime("%Y-%m-%d %H:%M") if e.received_at else "?"
+            sender = e.from_name or e.from_address
+            subject = e.subject or "(no subject)"
+            category = e.category or "?"
+            priority = e.priority or "?"
+
+            lines.append(
+                f"{subject}\n"
+                f"   From: {sender} | {date}\n"
+                f"   [{category}] [{priority}]"
+            )
+
+        return "\n\n".join(lines)
+    finally:
+        session.close()
+
+
+def _ask(args: list[str]) -> str:
+    if not args:
+        return "Please provide a question.\nExample: ask What did John say about the budget?"
+
+    question = " ".join(args)
+    results = hybrid_search(question, max_results=5)
+
+    if not results:
+        return f"No relevant emails found for: {question}"
+
+    prompt = _ask_template.render(emails=results, question=question)
+    raw = llm.generate(prompt)
+    parsed = _parse_json(raw)
+
+    answer = parsed.get("answer", raw)
+    confidence = parsed.get("confidence", "unknown")
+
+    lines = [f"{answer}\n", f"Confidence: {confidence}", f"Sources ({len(results)}):"]
+    for i, r in enumerate(results, 1):
+        sender = r["from_name"] or r["from_address"]
+        subject = r["subject"] or "(no subject)"
+        lines.append(f"   [{i}] {subject} - {sender}")
+
+    return "\n".join(lines)
