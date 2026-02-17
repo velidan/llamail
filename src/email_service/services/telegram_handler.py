@@ -16,6 +16,7 @@ _template_dir = Path(__file__).parent.parent / "templates"
 _env = Environment(loader=FileSystemLoader(str(_template_dir)))
 _ask_template = _env.get_template("ask.j2")
 _classify_template = _env.get_template("classify_intent.j2")
+_chitchat_template = _env.get_template("chitchat.j2")
 
 HELP_TEXT = """Available commands:
 
@@ -385,6 +386,21 @@ def _ask(args: list[str], chat_id: str = "") -> str:
     return "\n".join(lines)
 
 
+def _chitchat(text: str, chat_id: str) -> str:
+    try:
+        history = chat_memory.get_recent(chat_id)
+        history_text = chat_memory.format_for_prompt(history)
+
+        prompt = _chitchat_template.render(
+            message=text, conversation_history=history_text
+        )
+
+        return llm.generate(prompt, json_mode=False)
+    except Exception as e:
+        logger.error(f"Chitchat failed: {e}")
+        return "...System nominal. How may I assist you, Operator?"
+
+
 # dispatch table registry: intent name -> (handler_fn, param_keys)
 # must move it below all the functiona otherwise they won't be defined if I put this thing at the top
 INTENT_DISPATCH = {
@@ -414,10 +430,10 @@ def _llm_route(text: str, chat_id: str) -> str:
         logger.info(f"LLM route: intent={intent}, params={params}")
 
         if intent == "chitchat":
-            return CHITCHAT_RESPONSES[0]
+            return _chitchat(text, chat_id)
 
         if intent not in INTENT_DISPATCH:
-            return CHITCHAT_RESPONSES[0]
+            return _chitchat(text, chat_id)
 
         handler, param_keys = INTENT_DISPATCH[intent]
 
