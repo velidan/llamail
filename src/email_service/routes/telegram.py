@@ -8,5 +8,5 @@ router = APIRouter()
 
 @router.post("/telegram/command", response_model=TelegramCommandResponse)
 def telegram_command(request: TelegramCommandRequest):
-    reply = handle_command(request.text)
+    reply = handle_command(request.text, request.chat_id)
     return TelegramCommandResponse(reply=reply)

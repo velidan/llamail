@@ -6,6 +6,7 @@ from email_service.models.database import Email, get_session
 
 from email_service.services import llm
 from email_service.services.email_processor import _parse_json
+from email_service.services import chat_memory
 from pathlib import Path
 from jinja2 import Environment, FileSystemLoader
 
@@ -14,6 +15,7 @@ logger = logging.getLogger(__name__)
 _template_dir = Path(__file__).parent.parent / "templates"
 _env = Environment(loader=FileSystemLoader(str(_template_dir)))
 _ask_template = _env.get_template("ask.j2")
+_classify_template = _env.get_template("classify_intent.j2")
 
 HELP_TEXT = """Available commands:
 
@@ -29,34 +31,39 @@ import history {account}
 accounts
 help"""
 
+CHITCHAT_RESPONSES = [
+    "I'm here to help with your emails. Type 'help' to see what I can do."
+]
 
-def handle_command(text: str) -> str:
+
+def handle_command(text: str, chat_id: str | int = "") -> str:
     text = text.strip()
     if not text:
         return "Empty message. Type 'help' for commands."
+
+    chat_id_str = str(chat_id)
+    chat_memory.save_message(chat_id_str, "user", text)
 
     parts = text.split()
     command = parts[0].lower()
 
     if command == "help":
-        return HELP_TEXT
+        reply = HELP_TEXT
+    elif command == "accounts":
+        reply = _accounts_info()
+    elif command == "search":
+        reply = _search(parts[1:])
+    elif command == "recent":
+        reply = _recent(parts[1:])
+    elif command == "import":
+        reply = _handle_import(parts[1:])
+    elif command == "ask":
+        reply = _ask(parts[1:], chat_id_str)
+    else:
+        reply = _llm_route(text, chat_id_str)
 
-    if command == "accounts":
-        return _accounts_info()
-
-    if command == "search":
-        return _search(parts[1:])
-
-    if command == "recent":
-        return _recent(parts[1:])
-
-    if command == "import":
-        return _handle_import(parts[1:])
-
-    if command == "ask":
-        return _ask(parts[1:])
-
-    return f"Unknown command: {command}\nType 'help' for available commands."
+    chat_memory.save_message(chat_id_str, "assistant", reply)
+    return reply
 
 
 def _handle_import(args: list[str]) -> str:
@@ -347,7 +354,7 @@ def _recent(args: list[str]) -> str:
         session.close()
 
 
-def _ask(args: list[str]) -> str:
+def _ask(args: list[str], chat_id: str = "") -> str:
     if not args:
         return "Please provide a question.\nExample: ask What did John say about the budget?"
 
@@ -357,7 +364,12 @@ def _ask(args: list[str]) -> str:
     if not results:
         return f"No relevant emails found for: {question}"
 
-    prompt = _ask_template.render(emails=results, question=question)
+    history = chat_memory.get_recent(chat_id)
+    history_text = chat_memory.format_for_prompt(history)
+
+    prompt = _ask_template.render(
+        emails=results, question=question, conversation_history=history_text
+    )
     raw = llm.generate(prompt)
     parsed = _parse_json(raw)
 
@@ -371,3 +383,53 @@ def _ask(args: list[str]) -> str:
         lines.append(f"   [{i}] {subject} - {sender}")
 
     return "\n".join(lines)
+
+
+# dispatch table registry: intent name -> (handler_fn, param_keys)
+# must move it below all the functiona otherwise they won't be defined if I put this thing at the top
+INTENT_DISPATCH = {
+    "import_start": (_import_start, ["account", "count"]),
+    "import_pause": (_import_pause, ["account"]),
+    "import_resume": (_import_resume, ["account"]),
+    "import_retry": (_import_retry, ["account"]),
+    "import_status": (_import_status, []),
+    "import_history": (_import_history, ["account"]),
+    "accounts": (_accounts_info, []),
+    "search": (_search, ["query"]),
+    "ask": (_ask, ["question"]),
+    "recent": (_recent, ["count"]),
+    "help": (lambda: HELP_TEXT, []),
+}
+
+
+def _llm_route(text: str, chat_id: str) -> str:
+    try:
+        prompt = _classify_template.render(message=text)
+        raw = llm.generate(prompt)
+        parsed = _parse_json(raw)
+
+        intent = parsed.get("intent", "chitchat")
+        params = parsed.get("params", {})
+
+        logger.info(f"LLM route: intent={intent}, params={params}")
+
+        if intent == "chitchat":
+            return CHITCHAT_RESPONSES[0]
+
+        if intent not in INTENT_DISPATCH:
+            return CHITCHAT_RESPONSES[0]
+
+        handler, param_keys = INTENT_DISPATCH[intent]
+
+        args = []
+        for key in param_keys:
+            if key in params and params[key] is not None:
+                args.append(str(params[key]))
+
+        if intent == "ask":
+            return handler(args, chat_id)
+        return handler(args)
+
+    except Exception as e:
+        logger.error(f"LLM routing failed: {e}")
+        return "Sorry, I couldn't understand that. Type 'help' for available commands."

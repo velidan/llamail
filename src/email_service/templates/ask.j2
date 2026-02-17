@@ -1,5 +1,11 @@
 Answer the user's question based ONLY on the email context below.
 If the answer is not in the context, say "I don't have enough information to answer that."
+{% if conversation_history %}
+
+--- CONVERSATION HISTORY ---
+{{ conversation_history }}
+--- END HISTORY ---
+{% endif %}
 
 --- EMAIL CONTEXT ---
 {% for email in emails %}

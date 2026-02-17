@@ -7,7 +7,7 @@ class Settings(BaseSettings):
 
     llm_url: str = "http://localhost:11434"
     embed_url: str = "http://localhost:11435"
-    
+
     # These names can stay the same or be generic
     llm_model: str = "llama3.1"
     embedding_model: str = "nomic-v2"
@@ -22,6 +22,11 @@ class Settings(BaseSettings):
     chunk_threshold: int = 3500
     chunk_size: int = 3000
     chunk_overlap: int = 500
+
+    # max number of exchanges (user + bot pairs) to get from sql.10 pairs it's 20 rows and it's quite okay for a personal email assistant
+    chat_history_limit: int = 10
+    # hard cap in tokens. Must drop oldest exchanges from 10 if hit the limit. Leaves 5k tokens for other interaction. The goal to be able to run it on a potato
+    chat_history_token_budget: int = 2000
 
     host: str = "0.0.0.0"
     port: int = 8080
