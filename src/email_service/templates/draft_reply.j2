@@ -1,0 +1,30 @@
+Write a reply to the email below following the user's instructions.
+
+--- ORIGINAL EMAIL ---
+From: {{ from_name or "Unknown" }} <{{ from_address }}>
+To: {{ to_addresses }}
+Subject: {{ subject or "(no subject)" }}
+Date: {{ received_at }}
+
+{{ body_text }}
+--- END ORIGINAL EMAIL ---
+
+{% if summary %}
+Summary: {{ summary }}
+{% endif %}
+
+User instructions: {{ instructions }}
+
+Rules:
+ - Write ONLY the reply body, no subject line
+ - Match the language of the original email
+ - Keep it professional unless instructions say otherwise
+ - Address the sender by name if known
+ - Do not invent facts not in the original email or instructions
+ - Do not add a signature (the user will add their own)
+
+Return ONLY valid JSON:
+{
+    "reply_body": "The full reply text here",
+    "suggested_subject": "Re: original subject"
+}

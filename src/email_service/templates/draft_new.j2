@@ -1,0 +1,21 @@
+Compose a new email based on the user's instructions.
+
+Recipient: {{ to_addresses }}
+{% if recipient_name %}
+Recipient name: {{ recipient_name }}
+{% endif %}
+
+User instructions: {{ instructions }}
+
+Rules:
+ - Write ONLY the email body, no headers
+ - Keep it professional unless instructions say otherwise
+ - Address the recipient by name if known
+ - Do not invent facts not in the instructions
+ - Do not add a signature (the user will add their own)
+
+Return ONLY valid JSON:
+{
+    "email_body": "The full email text here",
+    "suggested_subject": "A fitting subject line"
+}

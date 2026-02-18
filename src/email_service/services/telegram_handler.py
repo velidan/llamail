@@ -17,12 +17,16 @@ _env = Environment(loader=FileSystemLoader(str(_template_dir)))
 _ask_template = _env.get_template("ask.j2")
 _classify_template = _env.get_template("classify_intent.j2")
 _chitchat_template = _env.get_template("chitchat.j2")
+_draft_reply_template = _env.get_template("draft_reply.j2")
+_draft_new_template = _env.get_template("draft_new.j2")
 
 HELP_TEXT = """Available commands:
 
 search <query>
 ask <question>
 recent [count]
+draft reply <email_id> <instructions>
+draft new <recipient> <instructions>
 import start {account} [count|all]
 import pause {account}
 import resume {account}
@@ -60,6 +64,8 @@ def handle_command(text: str, chat_id: str | int = "") -> str:
         reply = _handle_import(parts[1:])
     elif command == "ask":
         reply = _ask(parts[1:], chat_id_str)
+    elif command == "draft":
+        reply = _handle_draft(parts[1:])
     else:
         reply = _llm_route(text, chat_id_str)
 
@@ -312,6 +318,7 @@ def _search(args: list[str]) -> str:
         lines.append(
             f"{i}. [{score_pct}%] {subject}\n"
             f"   From: {sender} | {date}\n"
+            f"   ID: {r['email_id']}\n"
             f"   {summary}"
         )
 
@@ -347,6 +354,7 @@ def _recent(args: list[str]) -> str:
             lines.append(
                 f"{subject}\n"
                 f"   From: {sender} | {date}\n"
+                f"   ID: {e.id}\n"
                 f"   [{category}] [{priority}]"
             )
 
@@ -401,6 +409,116 @@ def _chitchat(text: str, chat_id: str) -> str:
         return "...System nominal. How may I assist you, Operator?"
 
 
+def _handle_draft(args: list[str]) -> str:
+    if not args:
+        return (
+            "Usage: \n"
+            "draft reply <email_id> <instructions>\n"
+            "draft new <recipient> <instructions>"
+        )
+
+    action = args[0].lower()
+
+    if action == "reply":
+        return _draft_reply(args[1:])
+
+    if action == "new":
+        return _draft_new(args[1:])
+
+    return f"Unknown draft action: {action}\n" "Usage: draft reply or draft new"
+
+
+def _draft_reply(args: list[str]) -> str:
+    if len(args) < 2:
+        return (
+            "Usage: draft reply <email_id> <instructions>\n"
+            "Example: draft reply sviat_123abc agree but suggest Thursday"
+        )
+
+    email_id = args[0]
+    instructions = " ".join(args[1:])
+
+    session = get_session()
+    try:
+        email = session.query(Email).filter(Email.id == email_id).first()
+        if not email:
+            return f"Email not found: {email_id}"
+
+        from_name = email.from_name
+        from_address = email.from_address
+        to_addresses = email.to_addresses or ""
+        subject = email.subject
+        received_at = email.received_at
+        body_text = email.body_text or email.snippet or "(no content)"
+        summary = email.summary
+    finally:
+        session.close()
+
+    prompt = _draft_reply_template.render(
+        from_name=from_name,
+        from_address=from_address,
+        to_addresses=to_addresses,
+        subject=subject,
+        received_at=received_at,
+        body_text=body_text,
+        summary=summary,
+        instructions=instructions,
+    )
+
+    raw = llm.generate(prompt)
+    parsed = _parse_json(raw)
+
+    reply_body = parsed.get("reply_body", raw)
+    suggested_subject = parsed.get("suggested_subject", f"Re: {subject or ''}")
+
+    return (
+        f"Draft reply to: {from_name or from_address}\n"
+        f"Subject: {suggested_subject}\n"
+        f"---\n"
+        f"{reply_body}"
+    )
+
+
+def _draft_new(args: list[str]) -> str:
+    if len(args) < 2:
+        return (
+            "Usage: draft new <recipient> <instructions>\n"
+            "Example: draft new john@example.com ask about project deadline"
+        )
+
+    to_address = args[0]
+    instructions = " ".join(args[1:])
+
+    # try to find recipent name from the past emails
+    recipient_name = None
+    session = get_session()
+    try:
+        known = session.query(Email).filter(Email.from_address == to_address).first()
+        if known:
+            recipient_name = known.from_name
+    finally:
+        session.close()
+
+    prompt = _draft_new_template.render(
+        to_address=to_address,
+        recipient_name=recipient_name,
+        instructions=instructions,
+    )
+
+    raw = llm.generate(prompt)
+    parsed = _parse_json(raw)
+
+    email_body = parsed.get("email_body", raw)
+    suggested_subject = parsed.get("suggested_subject", "")
+
+    return (
+        f"Draft to: {to_address}\n"
+        f"Subject: {suggested_subject}\n"
+        f"---\n"
+        f"{email_body}"
+    )
+
+
 # dispatch table registry: intent name -> (handler_fn, param_keys)
 # must move it below all the functiona otherwise they won't be defined if I put this thing at the top
 INTENT_DISPATCH = {
@@ -410,6 +528,8 @@ INTENT_DISPATCH = {
     "import_retry": (_import_retry, ["account"]),
     "import_status": (_import_status, []),
     "import_history": (_import_history, ["account"]),
+    "draft_reply": (_draft_reply, ["email_id", "instructions"]),
+    "draft_new": (_draft_new, ["recipient", "instructions"]),
     "accounts": (_accounts_info, []),
     "search": (_search, ["query"]),
     "ask": (_ask, ["question"]),
