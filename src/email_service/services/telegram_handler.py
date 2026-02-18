@@ -39,6 +39,8 @@ help"""
 CHITCHAT_RESPONSES = [
     "I'm here to help with your emails. Type 'help' to see what I can do."
 ]
+# it's a registry for number aliases for emails eg {1: "full_email_id", 2: "full_email_id", ...}. Just don't want to type all the email ids to reply etc.
+_last_results: dict[int, str] = {}
 
 
 def handle_command(text: str, chat_id: str | int = "") -> str:
@@ -305,8 +307,10 @@ def _search(args: list[str]) -> str:
     if not results:
         return f"No results found for: {query}"
 
+    _last_results.clear()
     lines = [f"Search results for: {query}\n"]
     for i, r in enumerate(results, 1):
+        _last_results[i] = r["email_id"]
         date = r["received_at"].strftime("%Y-%m-%d") if r["received_at"] else "?"
         sender = r["from_name"] or r["from_address"]
         subject = r["subject"] or "(no subject)"
@@ -316,9 +320,8 @@ def _search(args: list[str]) -> str:
         score_pct = int(r["score"] * 100)
 
         lines.append(
-            f"{i}. [{score_pct}%] {subject}\n"
+            f"[{i}]. [{score_pct}%] {subject}\n"
             f"   From: {sender} | {date}\n"
-            f"   ID: {r['email_id']}\n"
             f"   {summary}"
         )
 
@@ -343,8 +346,10 @@ def _recent(args: list[str]) -> str:
         if not emails:
             return "No emails found."
 
+        _last_results.clear()
         lines = [f"Last {len(emails)} emails:\n"]
-        for e in emails:
+        for i, e in enumerate(emails, 1):
+            _last_results[i] = e.id
             date = e.received_at.strftime("%Y-%m-%d %H:%M") if e.received_at else "?"
             sender = e.from_name or e.from_address
             subject = e.subject or "(no subject)"
@@ -352,9 +357,8 @@ def _recent(args: list[str]) -> str:
             priority = e.priority or "?"
 
             lines.append(
-                f"{subject}\n"
+                f"[{i}] {subject}\n"
                 f"   From: {sender} | {date}\n"
-                f"   ID: {e.id}\n"
                 f"   [{category}] [{priority}]"
             )
 
@@ -436,6 +440,11 @@ def _draft_reply(args: list[str]) -> str:
         )
 
     email_id = args[0]
+
+    # resolve number alias from last search/recent
+    if email_id.isdigit() and int(email_id) in _last_results:
+        email_id = _last_results[int(email_id)]
+
     instructions = " ".join(args[1:])
 
     session = get_session()
