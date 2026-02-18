@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     chat_history_token_budget: int = 2000
 
     host: str = "0.0.0.0"
-    port: int = 8080
+    port: int = 8000
 
     gmail_credentials_path: Path = Path("credentials/client_secret.json")
     gmail_token_path: Path = Path("credentials/token.json")

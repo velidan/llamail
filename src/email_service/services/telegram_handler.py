@@ -444,7 +444,9 @@ def _llm_route(text: str, chat_id: str) -> str:
 
         if intent == "ask":
             return handler(args, chat_id)
-        return handler(args)
+        if param_keys:
+            return handler(args)
+        return handler()
 
     except Exception as e:
         logger.error(f"LLM routing failed: {e}")

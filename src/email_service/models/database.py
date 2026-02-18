@@ -121,6 +121,17 @@ class ImportTask(Base):
     processed_at = Column(DateTime)
 
 
+class ChatMessage(Base):
+    __tablename__ = "chat_messages"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    chat_id = Column(String, nullable=False, index=True)
+    # "user" or "assistant"
+    role = Column(String, nullable=False)
+    content = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=datetime.now)
+
+
 # --- Engine & sesion ---
 def get_engine():
     settings.db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -197,6 +208,7 @@ def init_db():
 
 def get_session():
     return SessionLocal()
+
 
 def rebuild_fts():
     """Backfill FTS5 index from existing emails. One-time catch-up."""
