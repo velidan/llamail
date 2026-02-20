@@ -19,19 +19,22 @@ _classify_template = _env.get_template("classify_intent.j2")
 _chitchat_template = _env.get_template("chitchat.j2")
 _draft_reply_template = _env.get_template("draft_reply.j2")
 _draft_new_template = _env.get_template("draft_new.j2")
+_grammar_template = _env.get_template("grammar.j2")
 
 HELP_TEXT = """Available commands:
 
 search (query)
 ask (question)
 recent [count]
+show (number)
+grammar (text)
 draft reply (email_id) (instructions)
 draft new (recipient) (instructions)
-import start {account} [count|all]
-import pause {account}
-import resume {account}
+import start (account) [count|all]
+import pause (account)
+import resume (account)
 import status
-import history {account}
+import history (account)
 accounts
 help"""
 
@@ -63,6 +66,10 @@ def handle_command(text: str, chat_id: str | int = "") -> str:
         reply = _recent(parts[1:])
     elif command == "import":
         reply = _handle_import(parts[1:])
+    elif command == "show":
+        reply = _show_email(parts[1:])
+    elif command == "grammar":
+        reply = _grammar(parts[1:])
     elif command == "ask":
         reply = _ask(parts[1:], chat_id_str)
     elif command == "draft":
@@ -340,6 +347,55 @@ def _recent(args: list[str]) -> str:
         session.close()
 
 
+def _show_email(args: list[str]) -> str:
+    if not args:
+        return "Usage: show (number)\nExample: show 1 (after search or recent)"
+
+    ref = args[0]
+    if ref.isdigit() and int(ref) in _last_results:
+        email_id = _last_results[int(ref)]
+    else:
+        email_id = ref
+
+    session = get_session()
+    try:
+        email = session.query(Email).filter(Email.id == email_id).first()
+        if not email:
+            return f"Email not found: {email_id}"
+
+        sender = email.from_name or email.from_address
+        date = (
+            email.received_at.strftime("%Y-%m-%d %H:%M") if email.received_at else "?"
+        )
+        subject = email.subject or "(no subject)"
+        body = email.body_text or "(no content)"
+
+        # telegra msg limit is 4096 chars so must handle that
+        header = (
+            f"From: {sender} <{email.from_address}>\n"
+            f"Date: {date}\n"
+            f"Subject: {subject}\n"
+            f"---\n"
+        )
+        max_body = 4096 - len(header) - 20
+        if len(body) > max_body:
+            body = body[:max_body] + "\n...(truncated)"
+
+        return header + body
+    finally:
+        session.close()
+
+
+def _grammar(args: list[str]) -> str:
+    if not args:
+        return "Usage: grammar (text)\nExample: grammar I wants to meeting on tuesday"
+
+    text = " ".join(args)
+
+    prompt = _grammar_template.render(text=text)
+    return llm.generate(prompt, json_mode=False)
+
+
 def _ask(args: list[str], chat_id: str = "") -> str:
     if not args:
         return "Please provide a question.\nExample: ask What did John say about the budget?"
@@ -513,6 +569,8 @@ INTENT_DISPATCH = {
     "draft_new": (_draft_new, ["recipient", "instructions"]),
     "accounts": (_accounts_info, []),
     "search": (_search, ["query"]),
+    "show_email": (_show_email, ["number"]),
+    "grammar": (_grammar, ["text"]),
     "ask": (_ask, ["question"]),
     "recent": (_recent, ["count"]),
     "help": (lambda: HELP_TEXT, []),
