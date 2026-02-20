@@ -30,7 +30,6 @@ draft new (recipient) (instructions)
 import start {account} [count|all]
 import pause {account}
 import resume {account}
-import retry {account}
 import status
 import history {account}
 accounts
@@ -77,9 +76,7 @@ def handle_command(text: str, chat_id: str | int = "") -> str:
 
 def _handle_import(args: list[str]) -> str:
     if not args:
-        return (
-            "Please specify an action: start, pause, resume, status, history, or retry"
-        )
+        return "Please specify an action: start, pause, resume, status, or history"
     action = args[0].lower()
 
     if action == "status":
@@ -97,10 +94,7 @@ def _handle_import(args: list[str]) -> str:
     if action == "history":
         return _import_history(args[1:])
 
-    if action == "retry":
-        return _import_retry(args[1:])
-
-    return f"Unknown import action: {action}\nPlease specify an action: start, pause, resume, status, history, or retry"
+    return f"Unknown import action: {action}\nPlease specify an action: start, pause, resume, status, or history"
 
 
 def _import_status() -> str:
@@ -198,20 +192,24 @@ def _import_resume(args: list[str]) -> str:
         )
 
     account_id = args[0]
-    job_id = import_coordinator.find_paused_job(account_id)
+    result = import_coordinator.resume_job(account_id)
 
-    if not job_id:
-        return f"No paused import found for {account_id}"
-
-    success = import_coordinator.resume_job(job_id)
-    if not success:
-        return f"Failed to resume import for {account_id}"
+    if not result:
+        return f"No paused or completed import found for {account_id}"
 
     import threading
     from email_service.services import import_worker
 
-    thread = threading.Thread(target=import_worker.run_job, args=(job_id,), daemon=True)
+    thread = threading.Thread(
+        target=import_worker.run_job, args=(result["job_id"],), daemon=True
+    )
     thread.start()
+
+    if result["reset_count"] > 0:
+        return (
+            f"Import resumed for {account_id}\n"
+            f"Reset {result['reset_count']} failed emails back to pending"
+        )
 
     return f"Import resumed for {account_id}"
 
@@ -270,31 +268,6 @@ def _accounts_info() -> str:
         )
     except Exception as e:
         return f"Failed to get account info: {e}"
-
-
-def _import_retry(args: list[str]) -> str:
-    if not args:
-        return "Please provide the account email.\nExample: import retry user@gmail.com"
-
-    account_id = args[0]
-    result = import_coordinator.retry_failed_tasks(account_id)
-
-    if not result:
-        return f"No failed imports found for {account_id}"
-
-    import threading
-    from email_service.services import import_worker
-
-    thread = threading.Thread(
-        target=import_worker.run_job, args=(result["job_id"],), daemon=True
-    )
-    thread.start()
-
-    return (
-        f"Retrying {result['reset_count']} failed emails\n"
-        f"Account: {account_id}\n"
-        f"Job #{result['job_id']} restarted"
-    )
 
 
 def _search(args: list[str]) -> str:
@@ -534,7 +507,6 @@ INTENT_DISPATCH = {
     "import_start": (_import_start, ["account", "count"]),
     "import_pause": (_import_pause, ["account"]),
     "import_resume": (_import_resume, ["account"]),
-    "import_retry": (_import_retry, ["account"]),
     "import_status": (_import_status, []),
     "import_history": (_import_history, ["account"]),
     "draft_reply": (_draft_reply, ["email_id", "instructions"]),

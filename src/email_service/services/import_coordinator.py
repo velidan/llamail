@@ -108,55 +108,14 @@ def list_all_jobs() -> list[dict]:
         session.close()
 
 
-def resume_job(job_id: int):
-    session = get_session()
-    try:
-        job = session.query(ImportJob).filter(ImportJob.id == job_id).first()
-        if job and job.status == "paused":
-            job.status = "pending"
-            session.commit()
-            return True
-        return False
-    finally:
-        session.close()
-
-
-def find_active_job(acocunt_id: str) -> int | None:
-    session = get_session()
-    try:
-        job = (
-            session.query(ImportJob)
-            .filter(ImportJob.account_id == acocunt_id, ImportJob.status == "running")
-            .order_by(ImportJob.id.desc())
-            .first()
-        )
-        return job.id if job else None
-    finally:
-        session.close()
-
-
-def find_paused_job(account_id: str) -> int | None:
-    session = get_session()
-    try:
-        job = (
-            session.query(ImportJob)
-            .filter(ImportJob.account_id == account_id, ImportJob.status == "paused")
-            .order_by(ImportJob.id.desc())
-            .first()
-        )
-        return job.id if job else None
-    finally:
-        session.close()
-
-
-def retry_failed_tasks(account_id: str) -> dict | None:
+def resume_job(account_id: str) -> dict | None:
     session = get_session()
     try:
         job = (
             session.query(ImportJob)
             .filter(
                 ImportJob.account_id == account_id,
-                ImportJob.failed_count > 0,
+                ImportJob.status.in_(["paused", "completed"]),
             )
             .order_by(ImportJob.id.desc())
             .first()
@@ -175,5 +134,19 @@ def retry_failed_tasks(account_id: str) -> dict | None:
         session.commit()
 
         return {"job_id": job.id, "reset_count": reset_count}
+    finally:
+        session.close()
+
+
+def find_active_job(acocunt_id: str) -> int | None:
+    session = get_session()
+    try:
+        job = (
+            session.query(ImportJob)
+            .filter(ImportJob.account_id == acocunt_id, ImportJob.status == "running")
+            .order_by(ImportJob.id.desc())
+            .first()
+        )
+        return job.id if job else None
     finally:
         session.close()
