@@ -22,11 +22,11 @@ _draft_new_template = _env.get_template("draft_new.j2")
 
 HELP_TEXT = """Available commands:
 
-search <query>
-ask <question>
+search (query)
+ask (question)
 recent [count]
-draft reply <email_id> <instructions>
-draft new <recipient> <instructions>
+draft reply (email_id) (instructions)
+draft new (recipient) (instructions)
 import start {account} [count|all]
 import pause {account}
 import resume {account}
@@ -417,8 +417,8 @@ def _handle_draft(args: list[str]) -> str:
     if not args:
         return (
             "Usage: \n"
-            "draft reply <email_id> <instructions>\n"
-            "draft new <recipient> <instructions>"
+            "draft reply (email_id) (instructions)\n"
+            "draft new (recipient) (instructions)"
         )
 
     action = args[0].lower()
@@ -435,7 +435,7 @@ def _handle_draft(args: list[str]) -> str:
 def _draft_reply(args: list[str]) -> str:
     if len(args) < 2:
         return (
-            "Usage: draft reply <email_id> <instructions>\n"
+            "Usage: draft reply (email_id) (instructions)\n"
             "Example: draft reply sviat_123abc agree but suggest Thursday"
         )
 
@@ -491,7 +491,7 @@ def _draft_reply(args: list[str]) -> str:
 def _draft_new(args: list[str]) -> str:
     if len(args) < 2:
         return (
-            "Usage: draft new <recipient> <instructions>\n"
+            "Usage: draft new (recipient) (instructions)\n"
             "Example: draft new john@example.com ask about project deadline"
         )
 

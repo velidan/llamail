@@ -1,10 +1,11 @@
 import logging
+import time
 from datetime import datetime
 
 from email_service.config import settings
 from email_service.models.database import ImportJob, ImportTask, get_session
 from email_service.models.schemas import ProcessEmailRequest
-from email_service.services import gmail_client, email_processor
+from email_service.services import gmail_client, email_processor, llm
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +29,11 @@ def run_job(job_id: int):
     logger.info(f"Job {job_id}: starting worker")
 
     while True:
+        if not llm.is_available():
+            logger.warning(f"Job {job_id}: llama.cpp servers unreachable, auto-pausing")
+            _pause_job(job_id)
+            return
+
         session = get_session()
         try:
             job = session.query(ImportJob).filter(ImportJob.id == job_id).first()
@@ -130,6 +136,16 @@ def _update_heartbeat(job_id: int):
     try:
         job = session.query(ImportJob).filter(ImportJob.id == job_id).first()
         job.last_heartbeat = datetime.now()
+        session.commit()
+    finally:
+        session.close()
+
+
+def _pause_job(job_id: int):
+    session = get_session()
+    try:
+        job = session.query(ImportJob).filter(ImportJob.id == job_id).first()
+        job.status = "paused"
         session.commit()
     finally:
         session.close()
