@@ -44,6 +44,9 @@ def search(query: str, n_results: int = 5, where: dict | None = None) -> list[di
 
     return hits
 
+def delete(doc_id: str):
+    _collection.delete(ids=[doc_id])
+
 
 def is_available() -> bool:
     return _collection is not None

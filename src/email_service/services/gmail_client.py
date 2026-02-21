@@ -126,6 +126,10 @@ def send_email(
     logger.info(f"Email sent: id={sent['id']}, threadId={sent.get('threadId')}")
     return sent
 
+def trash_email(service, gmail_id: str) -> None:
+    service.users().messages().trash(userId="me", id=gmail_id).execute()
+    logger.info(f"Email trashed in Gmail: {gmail_id}")
+
 
 def _extract_body(payload: dict) -> str:
     if payload.get("mimeType") == "text/plain" and payload.get("body", {}).get("data"):
