@@ -2,6 +2,7 @@ import base64
 import logging
 from datetime import datetime
 from email.utils import parseaddr
+from email.mime.text import MIMEText
 
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -27,7 +28,7 @@ def get_gmail_service():
             flow = InstalledAppFlow.from_client_secrets_file(
                 str(settings.gmail_credentials_path), settings.gmail_scopes
             )
-            creds = flow.run_local_server(port=9090)
+            creds = flow.run_local_server(port=9090, prompt="consent")
 
         settings.gmail_token_path.parent.mkdir(parents=True, exist_ok=True)
         with open(settings.gmail_token_path, "w") as f:
@@ -107,6 +108,23 @@ def fetch_email(service, gmail_id: str) -> dict:
         "gmail_labels": msg.get("labelIds", []),
         "rfc822_message_id": headers.get("message-id"),
     }
+
+
+def send_email(
+    service, to: str, subject: str, body: str, thread_id: str | None = None
+) -> dict:
+    message = MIMEText(body)
+    message["to"] = to
+    message["subject"] = subject
+
+    raw = base64.urlsafe_b64encode(message.as_bytes()).decode("utf-8")
+    send_body: dict = {"raw": raw}
+    if thread_id:
+        send_body["threadId"] = thread_id
+
+    sent = service.users().messages().send(userId="me", body=send_body).execute()
+    logger.info(f"Email sent: id={sent['id']}, threadId={sent.get('threadId')}")
+    return sent
 
 
 def _extract_body(payload: dict) -> str:

@@ -132,6 +132,25 @@ class ChatMessage(Base):
     created_at = Column(DateTime, default=datetime.now)
 
 
+class Draft(Base):
+    __tablename__ = "drafts"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    account_id = Column(String, nullable=False)
+    # reply or new
+    draft_type = Column(String, nullable=False)
+    to_address = Column(String, nullable=False)
+    subject = Column(String)
+    body = Column(Text, nullable=False)
+    # for replies
+    original_email_id = Column(String, nullable=True)
+    # for replies - keeps gmail thread
+    thread_id = Column(String, nullable=True)
+    # draft or sent
+    status = Column(String, nullable=False, default="draft")
+    created_at = Column(DateTime, default=datetime.now)
+
+
 # --- Engine & sesion ---
 def get_engine():
     settings.db_path.parent.mkdir(parents=True, exist_ok=True)

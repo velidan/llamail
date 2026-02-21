@@ -9,6 +9,7 @@ Available intents:
 - import_history: User wants to see past import jobs. Params: account (email_address)
 - draft_reply: User wants to draft a reply to an existing email. Params: email_id (the email identifier), instructions (what to say in the reply)
 - draft_new: User wants to compose a new email from scratch. Params: recipient (email address), instructions (what to write about)
+- send: User wants to send a previously drafted email. Params: draft_id (optional number, omit to send the last draft)
 - accounts: User wants to see connected email accounts. Params: none
 - search: User wants to find emails by keyword or topic. Params: query (search text)
 - show_email: User wants to see the full content of a specific email. Params: number (the email number from search/recent results)

@@ -2,7 +2,7 @@ import logging
 
 from email_service.services import import_coordinator, gmail_client
 from email_service.services.search import hybrid_search
-from email_service.models.database import Email, get_session
+from email_service.models.database import Email, Draft, get_session
 
 from email_service.services import llm
 from email_service.services.email_processor import _parse_json
@@ -30,6 +30,7 @@ show (number)
 grammar (text)
 draft reply (email_id) (instructions)
 draft new (recipient) (instructions)
+send [draft_id]
 import start (account) [count|all]
 import pause (account)
 import resume (account)
@@ -43,6 +44,7 @@ CHITCHAT_RESPONSES = [
 ]
 # it's a registry for number aliases for emails eg {1: "full_email_id", 2: "full_email_id", ...}. Just don't want to type all the email ids to reply etc.
 _last_results: dict[int, str] = {}
+_last_draft_id: int | None = None
 
 
 def handle_command(text: str, chat_id: str | int = "") -> str:
@@ -74,6 +76,8 @@ def handle_command(text: str, chat_id: str | int = "") -> str:
         reply = _ask(parts[1:], chat_id_str)
     elif command == "draft":
         reply = _handle_draft(parts[1:])
+    elif command == "send":
+        reply = _send_email(parts[1:])
     else:
         reply = _llm_route(text, chat_id_str)
 
@@ -462,6 +466,8 @@ def _handle_draft(args: list[str]) -> str:
 
 
 def _draft_reply(args: list[str]) -> str:
+    global _last_draft_id
+
     if len(args) < 2:
         return (
             "Usage: draft reply (email_id) (instructions)\n"
@@ -489,8 +495,11 @@ def _draft_reply(args: list[str]) -> str:
         received_at = email.received_at
         body_text = email.body_text or email.snippet or "(no content)"
         summary = email.summary
+        thread_id = email.thread_id
     finally:
         session.close()
+
+    account_id = email_id.split("_", 1)[0]
 
     prompt = _draft_reply_template.render(
         from_name=from_name,
@@ -509,15 +518,36 @@ def _draft_reply(args: list[str]) -> str:
     reply_body = parsed.get("reply_body", raw)
     suggested_subject = parsed.get("suggested_subject", f"Re: {subject or ''}")
 
+    session = get_session()
+    try:
+        draft = Draft(
+            account_id=account_id,
+            draft_type="reply",
+            to_address=from_address,
+            subject=suggested_subject,
+            body=reply_body,
+            original_email_id=email_id,
+            thread_id=thread_id,
+        )
+        session.add(draft)
+        session.commit()
+        _last_draft_id = draft.id
+    finally:
+        session.close()
+
     return (
-        f"Draft reply to: {from_name or from_address}\n"
+        f"Draft reply to: {from_name or from_address} (#{_last_draft_id})\n"
         f"Subject: {suggested_subject}\n"
         f"---\n"
-        f"{reply_body}"
+        f"{reply_body}\n"
+        f"---\n"
+        f"Type 'send' to send this draft"
     )
 
 
 def _draft_new(args: list[str]) -> str:
+    global _last_draft_id
+
     if len(args) < 2:
         return (
             "Usage: draft new (recipient) (instructions)\n"
@@ -549,12 +579,70 @@ def _draft_new(args: list[str]) -> str:
     email_body = parsed.get("email_body", raw)
     suggested_subject = parsed.get("suggested_subject", "")
 
+    session = get_session()
+    try:
+        draft = Draft(
+            account_id="sviatoslavbarbutsa@gmail.com",
+            draft_type="new",
+            to_address=to_address,
+            subject=suggested_subject,
+            body=email_body,
+        )
+        session.add(draft)
+        session.commit()
+        _last_draft_id = draft.id
+    finally:
+        session.close()
+
     return (
-        f"Draft to: {to_address}\n"
+        f"Draft to: {to_address} (#{_last_draft_id})\n"
         f"Subject: {suggested_subject}\n"
         f"---\n"
-        f"{email_body}"
+        f"{email_body}\n"
+        f"---\n"
+        f"Type 'send' to send this draft"
     )
+
+
+def _send_email(args: list[str]) -> str:
+    global _last_draft_id
+
+    # resolve draft: "send" = last draft, "send 3" = draft #3
+    if args and args[0].isdigit():
+        draft_id = int(args[0])
+    elif _last_draft_id:
+        draft_id = _last_draft_id
+    else:
+        return "No draft to send. Create one with 'draft reply' or 'draft new' first."
+
+    session = get_session()
+    try:
+        draft = session.query(Draft).filter(Draft.id == draft_id).first()
+        if not draft:
+            return f"Draft #{draft_id} not found."
+
+        if draft.status == "sent":
+            return f"Draft #{draft_id} was already sent."
+
+        service = gmail_client.get_gmail_service()
+        gmail_client.send_email(
+            service,
+            to=draft.to_address,
+            subject=draft.subject or "",
+            body=draft.body,
+            thread_id=draft.thread_id,
+        )
+
+        # mark as sent
+        draft.status = "sent"
+        session.commit()
+
+        return f"Email sent!\n" f"To: {draft.to_address}\n" f"Subject: {draft.subject}"
+    except Exception as e:
+        logger.error(f"Send failed: {e}")
+        return f"Failed to send draft #{draft_id}: {e}"
+    finally:
+        session.close()
 
 
 # dispatch table registry: intent name -> (handler_fn, param_keys)
@@ -567,6 +655,7 @@ INTENT_DISPATCH = {
     "import_history": (_import_history, ["account"]),
     "draft_reply": (_draft_reply, ["email_id", "instructions"]),
     "draft_new": (_draft_new, ["recipient", "instructions"]),
+    "send": (_send_email, ["draft_id"]),
     "accounts": (_accounts_info, []),
     "search": (_search, ["query"]),
     "show_email": (_show_email, ["number"]),
