@@ -4,7 +4,7 @@ from email_service.services import import_coordinator, gmail_client
 from email_service.services.search import hybrid_search
 from email_service.models.database import Email, Draft, get_session
 
-from email_service.services import llm
+from email_service.services import llm, embeddings
 from email_service.services.email_processor import _parse_json
 from email_service.services import chat_memory
 from pathlib import Path
@@ -27,6 +27,7 @@ search (query)
 ask (question)
 recent [count]
 show (number)
+delete (number)
 grammar (text)
 draft reply (email_id) (instructions)
 draft new (recipient) (instructions)
@@ -70,6 +71,10 @@ def handle_command(text: str, chat_id: str | int = "") -> str:
         reply = _handle_import(parts[1:])
     elif command == "show":
         reply = _show_email(parts[1:])
+    elif command == "delete":
+        reply = _delete_email(parts[1:])
+    elif command == "block":
+        reply = _block_sender(parts[1:])
     elif command == "grammar":
         reply = _grammar(parts[1:])
     elif command == "ask":
@@ -389,6 +394,79 @@ def _show_email(args: list[str]) -> str:
     finally:
         session.close()
 
+def _delete_email(args: list[str]) -> str:
+    if not args:
+        return "Usage: delete (number)\nExample: delete 3 (after search or recent)"
+    
+    ref = args[0]
+    if ref.isdigit() and int(ref) in _last_results:
+        email_id = _last_results[int(ref)]
+    else:
+        email_id = ref
+
+    session = get_session()
+    try:
+        email = session.query(Email).filder(Email.id == email_id).first()
+        if not email:
+            return f"Email not found: {email_id}"
+        
+        gmail_id = email.gmail_id
+        subject = email.subject or "(no subject)"
+
+        # move to traash in gmail
+        try:
+            service = gmail_client.get_gmail_service()
+            gmail_client.trash_email(service, gmail_id)
+        except Exception as e:
+            logger.error(f"Gmail trash failed: {e}")
+            return f"Failed to trash in Gmail: {e}"
+        
+        # get rid of it in chrome
+        try:
+            embeddings.delete(email_id)
+        except Exception as e:
+            logger.warning(f"ChromaDb delete failed. Whoops. {e}")
+
+        # delete chunks then email from sqlite
+        from email_service.models.database import EmailChunk
+        session.query(EmailChunk).filter(EmailChunk.email_id == email_id).delete()
+        session.query(Email).filter(Email.id == email_id).delete()
+        session.commit()
+
+        return f"Deleted: {subject}"
+    finally:
+        session.close()
+
+def _block_sender(args: list[str]) -> str:
+    if not args:
+        return "Usage: block (number)\nExample: block 3 (after search or recent)"
+
+    ref = args[0]
+    if ref.isdigit() and int(ref) in _last_results:
+        email_id = _last_results(int(ref))
+    else:
+        email_id = ref
+
+    session = get_session()
+    try:
+        email = session.query(Email).filter(Email.id == email_id).first()
+        if not email:
+            return f"Email not found: {email_id}"
+        
+        from_address = email.front_address
+        from_name = email.from_name or from_address
+    finally:
+        session.close()
+
+    try:
+        service = gmail_client.get_gmail_service()
+        gmail_client.block_sender(service, from_address)
+    except Exception as e:
+        logger.error(f"Block sender failed: {e}")
+        return f"Failed to block {from_address}: {e}"
+    
+    return f"Blocked: {from_name} <{from_address}>\nFuture emails from this sender will be auto-trashed"
+
 
 def _grammar(args: list[str]) -> str:
     if not args:
@@ -659,6 +737,7 @@ INTENT_DISPATCH = {
     "accounts": (_accounts_info, []),
     "search": (_search, ["query"]),
     "show_email": (_show_email, ["number"]),
+    "delete": (_delete_email, ["number"]),
     "grammar": (_grammar, ["text"]),
     "ask": (_ask, ["question"]),
     "recent": (_recent, ["count"]),

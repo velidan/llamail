@@ -130,6 +130,16 @@ def trash_email(service, gmail_id: str) -> None:
     service.users().messages().trash(userId="me", id=gmail_id).execute()
     logger.info(f"Email trashed in Gmail: {gmail_id}")
 
+def block_sender(service, from_address: str) -> None:
+    filter_body = {
+        "criteria": {"from": from_address},
+        "action": {"removeLabelIds": ["INBOX"], "addLabelIds": ["TRASH"]}
+    }
+    service.users().settings().filters().create(
+        userId="me", body=filter_body
+    ).execute()
+    logger.info(f"Bocked sender: {from_address}")
+
 
 def _extract_body(payload: dict) -> str:
     if payload.get("mimeType") == "text/plain" and payload.get("body", {}).get("data"):
