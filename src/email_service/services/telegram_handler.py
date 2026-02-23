@@ -398,11 +398,21 @@ def _show_email(args: list[str]) -> str:
             f"Subject: {subject}\n"
             f"---\n"
         )
-        max_body = 4096 - len(header) - 20
-        if len(body) > max_body:
-            body = body[:max_body] + "\n...(truncated)"
 
-        return header + body
+        attachments_line = ""
+        if email.attachments:
+            import json
+
+            att_list = json.loads(email.attachments)
+            if att_list:
+                names = ", ".join(a["filename"] for a in att_list)
+                attachments_line = f"Attachments: {names}\n"
+
+        max_body = 4096 - len(header) - len(attachments_line) - 20
+        if len(body) > max_body:
+            body = body[:max_body] + "\n...{truncated}"
+
+        return header + attachments_line + body
     finally:
         session.close()
 

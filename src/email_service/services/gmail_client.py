@@ -92,6 +92,7 @@ def fetch_email(service, gmail_id: str) -> dict:
     cc_addresses = [addr.strip() for addr in cc_raw.split(",") if addr.strip()]
 
     body_text = _extract_body(msg["payload"])
+    attachments = _extract_attachments(msg["payload"])
 
     received_at = datetime.fromtimestamp(int(msg["internalDate"]) / 1000)
 
@@ -107,6 +108,7 @@ def fetch_email(service, gmail_id: str) -> dict:
         "snippet": msg.get("snippet"),
         "received_at": received_at,
         "gmail_labels": msg.get("labelIds", []),
+        "attachments": attachments,
         "rfc822_message_id": headers.get("message-id"),
     }
 
@@ -182,3 +184,21 @@ def _extract_body(payload: dict) -> str:
         if result:
             return result
     return ""
+
+
+def _extract_attachments(payload: dict) -> list[dict]:
+    """Recursively extract attachment metadata from Gmail payload"""
+    attachments = []
+    for part in payload.get("parts", []):
+        filename = part.get("filename")
+        if filename:
+            attachments.append(
+                {
+                    "filename": filename,
+                    "mime_type": part.get("mimeType", "application/octet-stream"),
+                    "size_bytes": part.get("body", {}).get("size", 0),
+                }
+            )
+        # recurse into nested multipart
+        attachments.extend(_extract_attachments(part))
+    return attachments

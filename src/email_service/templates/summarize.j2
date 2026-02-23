@@ -7,6 +7,10 @@ Date: {{ date }}
 --- EMAIL BODY ---
 {{ body }}
 --- END ---
+{% if attachments %}
+
+Attachments: {{ attachments | join(', ') }}
+{% endif %}
 
 Return this exact JSON structure, nothing else:
 {

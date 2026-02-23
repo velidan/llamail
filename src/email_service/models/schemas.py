@@ -20,6 +20,7 @@ class ProcessEmailRequest(BaseModel):
     received_at: datetime
 
     gmail_labels: list[str] = []
+    attachments: list[dict] = []
 
 
 class ProcessEmailResponse(BaseModel):

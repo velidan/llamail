@@ -22,6 +22,7 @@ _summarize = _env.get_template("summarize.j2")
 _summarize_chunk = _env.get_template("summarize_chunk.j2")
 _summarize_master = _env.get_template("summarize_master.j2")
 
+
 # --- public entry point ---
 def process_email(request: ProcessEmailRequest) -> ProcessEmailResponse:
     start = time.time()
@@ -35,20 +36,31 @@ def process_email(request: ProcessEmailRequest) -> ProcessEmailResponse:
     result.processing_time_ms = int((time.time() - start) * 1000)
     return result
 
+
 def _build_gmail_link(rfc822_message_id: str | None) -> str | None:
     if not rfc822_message_id:
         return None
     clean_id = rfc822_message_id.strip("<>")
     return f"https://mail.google.com/mail/u/0/#search/rfc822msgid%3A{quote(clean_id)}"
 
+
 # --- single email path (short mail) ---
-def _process_single(request: ProcessEmailRequest, email_id: str) -> ProcessEmailResponse:
+def _process_single(
+    request: ProcessEmailRequest, email_id: str
+) -> ProcessEmailResponse:
     truncated_body = token_budget.truncate_to_budget(
         request.body_text, settings.summary_content_budget
     )
-    
+    attachment_names = (
+        [a["filename"] for a in request.attachments] if request.attachments else []
+    )
+
     # FIX: Defined truncated_body first to avoid NameError
-    safe_body = truncated_body if (truncated_body and truncated_body.strip()) else "[No content available]"
+    safe_body = (
+        truncated_body
+        if (truncated_body and truncated_body.strip())
+        else "[No content available]"
+    )
 
     prompt = _summarize.render(
         from_name=request.from_name,
@@ -56,8 +68,9 @@ def _process_single(request: ProcessEmailRequest, email_id: str) -> ProcessEmail
         subject=request.subject,
         date=request.received_at,
         body=safe_body,
+        attachments=attachment_names,
     )
-    
+
     if not prompt.strip():
         logger.error(f"Rendered empty prompt for email {email_id}")
         parsed = {"summary": "Error: Empty prompt rendered", "category": "error"}
@@ -72,6 +85,9 @@ def _process_single(request: ProcessEmailRequest, email_id: str) -> ProcessEmail
         f"Subject: {request.subject}\n"
         f"Summary: {parsed.get('summary','')}"
     )
+    if request.attachments:
+        filenames = ", ".join(a["filename"] for a in request.attachments)
+        embed_text += f"\nAttachments: {filenames}"
     embeddings.store(
         doc_id=email_id,
         text=embed_text,
@@ -82,7 +98,7 @@ def _process_single(request: ProcessEmailRequest, email_id: str) -> ProcessEmail
             "type": "email",
         },
     )
-    
+
     _save_email(request, email_id, parsed)
 
     return ProcessEmailResponse(
@@ -95,8 +111,11 @@ def _process_single(request: ProcessEmailRequest, email_id: str) -> ProcessEmail
         tokens_used=tokens_used,
     )
 
+
 # --- chunked email handle (long emails) ---
-def _process_chunked(request: ProcessEmailRequest, email_id: str) -> ProcessEmailResponse:
+def _process_chunked(
+    request: ProcessEmailRequest, email_id: str
+) -> ProcessEmailResponse:
     chunks = chunker.chunk_text(request.body_text)
     logger.info(f"{email_id}: split into {len(chunks)} chunks")
 
@@ -104,10 +123,10 @@ def _process_chunked(request: ProcessEmailRequest, email_id: str) -> ProcessEmai
 
     chunk_summaries = []
     tokens_used = 0
-    
+
     for chunk in chunks:
         safe_content = chunk["content"] if chunk["content"] else "[Empty Chunk]"
-        
+
         prompt = _summarize_chunk.render(
             chunk_index=chunk["chunk_index"] + 1,
             total_chunks=len(chunks),
@@ -134,12 +153,15 @@ def _process_chunked(request: ProcessEmailRequest, email_id: str) -> ProcessEmai
         date=request.received_at,
         chunk_summaries=chunk_summaries,
     )
-    
+
     raw_master = llm.generate(master_prompt)
     parsed_master = _parse_json(raw_master)
+
     tokens_used += token_budget.count_tokens(master_prompt)
 
-    _save_email(request, email_id, parsed_master, is_chunked=True, chunk_count=len(chunks))
+    _save_email(
+        request, email_id, parsed_master, is_chunked=True, chunk_count=len(chunks)
+    )
 
     return ProcessEmailResponse(
         email_id=email_id,
@@ -150,6 +172,7 @@ def _process_chunked(request: ProcessEmailRequest, email_id: str) -> ProcessEmai
         action_required=parsed_master.get("action_required", False),
         tokens_used=tokens_used,
     )
+
 
 # --- parse json from llm response ---
 def _parse_json(raw: str) -> dict:
@@ -176,6 +199,7 @@ def _parse_json(raw: str) -> dict:
     logger.warning(f"Failed to parse LLM JSON: {text[:200]}")
     return {"summary": text}
 
+
 # --- save to sqlite ---
 def _save_email(request, email_id, parsed, is_chunked=False, chunk_count=0):
     session = get_session()
@@ -200,6 +224,9 @@ def _save_email(request, email_id, parsed, is_chunked=False, chunk_count=0):
             action_required=parsed.get("action_required", False),
             action_items=json.dumps(parsed.get("action_items", [])),
             key_people=json.dumps(parsed.get("key_people", [])),
+            attachments=(
+                json.dumps(request.attachments) if request.attachments else None
+            ),
             has_embedding=True,
             is_chunked=is_chunked,
             chunk_count=chunk_count,
@@ -208,6 +235,7 @@ def _save_email(request, email_id, parsed, is_chunked=False, chunk_count=0):
         session.commit()
     finally:
         session.close()
+
 
 def _save_chunk(email_id, chunk, summary):
     session = get_session()

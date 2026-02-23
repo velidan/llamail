@@ -1,3 +1,4 @@
+import json
 import logging
 from sqlalchemy import text
 
@@ -103,6 +104,7 @@ def _enrich(results: list[tuple[str, float]]) -> list[dict]:
                 "category": e.category,
                 "priority": e.priority,
                 "score": score_map.get(e.id, 0.0),
+                "attachments": json.loads(e.attachments) if e.attachments else [],
             }
         return [email_map[eid] for eid, _ in results if eid in email_map]
     finally:

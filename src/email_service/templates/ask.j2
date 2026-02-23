@@ -14,6 +14,7 @@ If the answer is not in the context, say "I don't have enough information to ans
 Subject: {{ email.subject or "(no subject)" }}
 Date: {{ email.received_at }}
 Summary: {{ email.summary or "(no summary)" }}
+{% if email.attachments %}Attachments: {{ email.attachments }}{% endif %}
 
 {% endfor %}
 --- END CONTEXT ---

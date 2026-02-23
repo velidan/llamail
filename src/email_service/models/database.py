@@ -55,6 +55,8 @@ class Email(Base):
 
     # embedding status
     has_embedding = Column(Boolean, default=False)
+    # JSON: [{"filename":..., "mime_type":..., "suze_bytes":...}]
+    attachments = Column(Text, nullable=True)
     is_chunked = Column(Boolean, default=False)
     chunk_count = Column(Integer, default=0)
 
