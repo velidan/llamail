@@ -37,5 +37,8 @@ class Settings(BaseSettings):
     import_batch_size: int = 50
     import_max_retries: int = 3
 
+    # seconds between polls
+    scheduler_check_interval: int = 30
+
 
 settings = Settings()

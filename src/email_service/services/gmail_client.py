@@ -1,5 +1,6 @@
 import base64
 import logging
+import re
 from datetime import datetime
 from email.utils import parseaddr
 from email.mime.text import MIMEText
@@ -126,19 +127,50 @@ def send_email(
     logger.info(f"Email sent: id={sent['id']}, threadId={sent.get('threadId')}")
     return sent
 
+
 def trash_email(service, gmail_id: str) -> None:
     service.users().messages().trash(userId="me", id=gmail_id).execute()
     logger.info(f"Email trashed in Gmail: {gmail_id}")
 
+
 def block_sender(service, from_address: str) -> None:
     filter_body = {
         "criteria": {"from": from_address},
-        "action": {"removeLabelIds": ["INBOX"], "addLabelIds": ["TRASH"]}
+        "action": {"removeLabelIds": ["INBOX"], "addLabelIds": ["TRASH"]},
     }
-    service.users().settings().filters().create(
-        userId="me", body=filter_body
-    ).execute()
+    service.users().settings().filters().create(userId="me", body=filter_body).execute()
     logger.info(f"Bocked sender: {from_address}")
+
+
+def get_unsubscribe_info(service, gmail_id: str) -> dict:
+    msg = (
+        service.users()
+        .messages()
+        .get(
+            userId="me",
+            id=gmail_id,
+            format="metadata",
+            metadataHeaders=["List-Unsubscribe"],
+        )
+        .execute()
+    )
+
+    headers = {h["name"].lower(): h["value"] for h in msg["payload"]["headers"]}
+    raw = headers.get("list-unsubscribe", "")
+
+    if not raw:
+        return {"found": False}
+
+    result = {"found": True, "mailto": None, "url": None}
+    mailto_match = re.search(r"<mailto:([^>]+)>", raw)
+    if mailto_match:
+        result["mailto"] = mailto_match.group(1)
+
+    url_match = re.search(r"<(https?://[^>]+)>", raw)
+    if url_match:
+        result["url"] = url_match.group(1)
+
+    return result
 
 
 def _extract_body(payload: dict) -> str:

@@ -1,4 +1,6 @@
 import logging
+import re
+from datetime import datetime, timedelta
 
 from email_service.services import import_coordinator, gmail_client
 from email_service.services.search import hybrid_search
@@ -28,10 +30,16 @@ ask (question)
 recent [count]
 show (number)
 delete (number)
+block (number)
+unsubscribe (number)
 grammar (text)
 draft reply (email_id) (instructions)
 draft new (recipient) (instructions)
 send [draft_id]
+send [draft_id] at HH:MM
+send [draft_id] in 2h30m
+schedule list
+schedule cancel (draft_id)
 import start (account) [count|all]
 import pause (account)
 import resume (account)
@@ -75,6 +83,8 @@ def handle_command(text: str, chat_id: str | int = "") -> str:
         reply = _delete_email(parts[1:])
     elif command == "block":
         reply = _block_sender(parts[1:])
+    elif command == "unsubscribe":
+        reply = _unsubscribe(parts[1:])
     elif command == "grammar":
         reply = _grammar(parts[1:])
     elif command == "ask":
@@ -83,6 +93,8 @@ def handle_command(text: str, chat_id: str | int = "") -> str:
         reply = _handle_draft(parts[1:])
     elif command == "send":
         reply = _send_email(parts[1:])
+    elif command == "schedule":
+        reply = _handle_schedule(parts[1:])
     else:
         reply = _llm_route(text, chat_id_str)
 
@@ -394,10 +406,11 @@ def _show_email(args: list[str]) -> str:
     finally:
         session.close()
 
+
 def _delete_email(args: list[str]) -> str:
     if not args:
         return "Usage: delete (number)\nExample: delete 3 (after search or recent)"
-    
+
     ref = args[0]
     if ref.isdigit() and int(ref) in _last_results:
         email_id = _last_results[int(ref)]
@@ -409,7 +422,7 @@ def _delete_email(args: list[str]) -> str:
         email = session.query(Email).filder(Email.id == email_id).first()
         if not email:
             return f"Email not found: {email_id}"
-        
+
         gmail_id = email.gmail_id
         subject = email.subject or "(no subject)"
 
@@ -420,7 +433,7 @@ def _delete_email(args: list[str]) -> str:
         except Exception as e:
             logger.error(f"Gmail trash failed: {e}")
             return f"Failed to trash in Gmail: {e}"
-        
+
         # get rid of it in chrome
         try:
             embeddings.delete(email_id)
@@ -429,6 +442,7 @@ def _delete_email(args: list[str]) -> str:
 
         # delete chunks then email from sqlite
         from email_service.models.database import EmailChunk
+
         session.query(EmailChunk).filter(EmailChunk.email_id == email_id).delete()
         session.query(Email).filter(Email.id == email_id).delete()
         session.commit()
@@ -436,6 +450,7 @@ def _delete_email(args: list[str]) -> str:
         return f"Deleted: {subject}"
     finally:
         session.close()
+
 
 def _block_sender(args: list[str]) -> str:
     if not args:
@@ -452,7 +467,7 @@ def _block_sender(args: list[str]) -> str:
         email = session.query(Email).filter(Email.id == email_id).first()
         if not email:
             return f"Email not found: {email_id}"
-        
+
         from_address = email.front_address
         from_name = email.from_name or from_address
     finally:
@@ -464,8 +479,76 @@ def _block_sender(args: list[str]) -> str:
     except Exception as e:
         logger.error(f"Block sender failed: {e}")
         return f"Failed to block {from_address}: {e}"
-    
+
     return f"Blocked: {from_name} <{from_address}>\nFuture emails from this sender will be auto-trashed"
+
+
+def _unsubscribe(args: list[str]) -> str:
+    if not args:
+        return "Usage: unsubscribe (number)\nExample: unsubscribe 3 (after search or recent)"
+
+    ref = args[0]
+    if ref.isdigit() and int(ref) in _last_results:
+        email_id = _last_results[int(ref)]
+    else:
+        email_id = ref
+
+    session = get_session()
+    try:
+        email = session.query(Email).filter(Email.id == email_id).first()
+        if not email:
+            return f"Email not found: {email_id}"
+
+        gmail_id = email.gmail_id
+        from_address = email.from_address
+        from_name = email.from_name or from_address
+    finally:
+        session.close()
+
+    try:
+        service = gmail_client.get_gmail_service()
+        info = gmail_client.get_unsubscribe_info(service, gmail_id)
+    except Exception as e:
+        logger.error("Unsubscribe lookup failed: {e}")
+        return f"Failed to check unsubscribe info: {e}"
+
+    if not info["found"]:
+        return (
+            f"No unsubscribe header found for {from_name}.\n"
+            f"You can block this sender instead: block {args[0]}"
+        )
+
+    if info["mailto"]:
+        try:
+            mailto = info["mailto"]
+            unsub_address = mailto.split("?")[0]
+            subject = "Unsubscribe"
+            # check for ?subject= param
+            if "?" in mailto:
+                params = mailto.split("?", 1)[1]
+                for param in params.split("&"):
+                    if param.lower().startswith("subject="):
+                        subject = param.split("=", 1)[1]
+
+            gmail_client.send_email(
+                service, to=unsub_address, subject=subject, body="Unsubscribe"
+            )
+            return f"Unsubscribe email sent to {unsub_address} for {from_name}."
+        except Exception as e:
+            logger.error(f"Unsubscribe mailto failed: {e}")
+            return f"Failed to send unsubscribe email: {e}"
+
+    if info["url"]:
+        return (
+            f"Unsubscribe from {from_name}:\n"
+            f"{info['url']}\n\n"
+            f"Click the link above to unsubscribe."
+        )
+
+    return (
+        f"Unsubscribe header found but couldn't parse it for {from_name}.\n"
+        f"You can block this sender instead: block {args[0]}"
+    )
 
 
 def _grammar(args: list[str]) -> str:
@@ -685,13 +768,24 @@ def _draft_new(args: list[str]) -> str:
 def _send_email(args: list[str]) -> str:
     global _last_draft_id
 
-    # resolve draft: "send" = last draft, "send 3" = draft #3
-    if args and args[0].isdigit():
-        draft_id = int(args[0])
-    elif _last_draft_id:
-        draft_id = _last_draft_id
-    else:
-        return "No draft to send. Create one with 'draft reply' or 'draft new' first."
+    # parse: "send", "send 3", "send at 14:30", "send 3 at 14:30", "send in 2h", "send 3 in 2h30m"
+    draft_id = None
+    time_args = []
+
+    for i, arg in enumerate(args):
+        if arg.lower() in ("at", "in"):
+            time_args = args[i:]
+            break
+        elif arg.isdigit() and draft_id is None:
+            draft_id = int(arg)
+
+    if draft_id is None:
+        if _last_draft_id:
+            draft_id = _last_draft_id
+        else:
+            return (
+                "No draft to send. Create one with 'draft reply' or 'draft new' first."
+            )
 
     session = get_session()
     try:
@@ -702,6 +796,32 @@ def _send_email(args: list[str]) -> str:
         if draft.status == "sent":
             return f"Draft #{draft_id} was already sent."
 
+        if draft.status == "scheduled":
+            return (
+                f"Draft #{draft_id} is already scheduled for "
+                f"{draft.scheduled_at.strftime('%Y-%m-%d %H:%M')}.\n"
+                f"Use 'schedule cancel {draft_id}' to cancel first."
+            )
+
+        # schedule send
+        if time_args:
+            send_at = _parse_time(time_args)
+            if isinstance(send_at, str):
+                # err messag
+                return send_at
+
+            draft.status = "scheduled"
+            draft.scheduled_at = send_at
+            session.commit()
+
+            return (
+                f"Scheduled!\n"
+                f"Draft #{draft_id} to {draft.to_address}\n"
+                f"Subject: {draft.subject}\n"
+                f"Will send at: {send_at.strftime('%Y-%m-%d %H:%M')}"
+            )
+
+        # immediately send
         service = gmail_client.get_gmail_service()
         gmail_client.send_email(
             service,
@@ -711,7 +831,6 @@ def _send_email(args: list[str]) -> str:
             thread_id=draft.thread_id,
         )
 
-        # mark as sent
         draft.status = "sent"
         session.commit()
 
@@ -719,6 +838,113 @@ def _send_email(args: list[str]) -> str:
     except Exception as e:
         logger.error(f"Send failed: {e}")
         return f"Failed to send draft #{draft_id}: {e}"
+    finally:
+        session.close()
+
+
+def _parse_time(args: list[str]) -> datetime | str:
+    """Parse 'at HH:MM' or 'in 2h30m'. Returns datetime or error str."""
+    keyword = args[0].lower()
+    if len(args) < 2:
+        return "Missing time value. Examples: 'at 14:30' or 'in 2h'"
+
+    value = " ".join(args[1:])
+
+    if keyword == "at":
+        try:
+            time_part = datetime.strptime(value.strip(), "%H:%M")
+            now = datetime.now()
+            send_at = now.replace(
+                hour=time_part.hour, minute=time_part.minute, second=0, microsecond=0
+            )
+            # if time already passed today so schedule it for tomorrow
+            if send_at <= now:
+                send_at += timedelta(days=1)
+            return send_at
+        except ValueError:
+            return f"Invalid time format: '{value}'. Use HH:MM (eg. 14:30)"
+
+    if keyword == "in":
+        match = re.match(r"(?:(\d+)h)?(?:(\d+)m)?$", value.strip())
+        if not match or not any(match.groups()):
+            return f"Invalid delay format: '{value}'. Use e.g. '2h', '30m', '1h30m'"
+
+        hours = int(match.group(1) or 0)
+        minutes = int(match.group(2) or 0)
+
+        if hours == 0 and minutes == 0:
+            return "Delay must be at least 1 minute"
+
+        return datetime.now() + timedelta(hours=hours, minutes=minutes)
+
+    return f"Unknown time keyword: '{keyword}'. Use 'at' or 'in'."
+
+
+def _handle_schedule(args: list[str]) -> str:
+    if not args:
+        return "Usage: schedule list | schedule cancel (draft_id)"
+
+    action = args[0].lower()
+
+    if action == "list":
+        return _schedule_list()
+
+    if action == "cancel":
+        return _schedule_cancel(args[1:])
+
+    return f"Unknown schedule action: {action}\nUsage: schedule list | schedule cancel (draft_id)"
+
+
+def _schedule_list() -> str:
+    session = get_session()
+    try:
+        drafts = (
+            session.query(Draft)
+            .filter(Draft.status == "scheduled")
+            .order_by(Draft.scheduled_at)
+            .all()
+        )
+
+        if not drafts:
+            return "No scheduled sends."
+
+        lines = ["Scheduled sends:\n"]
+        for d in drafts:
+            time_str = d.scheduled_at.strftime("%Y-%m-%d %H:%M")
+            lines.append(
+                f"[#{d.id}] {d.to_address}\n"
+                f"    Subject: {d.subject}\n"
+                f"   Send at: {time_str}"
+            )
+
+        return "\n\n".join(lines)
+    finally:
+        session.close()
+
+
+def _schedule_cancel(args: list[str]) -> str:
+    if not args or not args[0].isdigit():
+        return "Usage: schedule cancel (draft_id)\nExample: schedule cancel 5"
+
+    draft_id = int(args[0])
+
+    session = get_session()
+    try:
+        draft = session.query(Draft).filter(Draft.id == draft_id).first()
+        if not draft:
+            return f"Draft #{draft_id} not found."
+
+        if draft.status != "scheduled":
+            return f"Draft #{draft_id} is not scheduled (status: {draft.status})."
+
+        draft.status = "draft"
+        draft.scheduled_at = None
+        session.commit()
+
+        return (
+            f"Cancelled scheduled send for draft #{draft_id}.\n"
+            f"Draft restored. Use 'send {draft_id}' to send immediatelly"
+        )
     finally:
         session.close()
 
@@ -734,10 +960,14 @@ INTENT_DISPATCH = {
     "draft_reply": (_draft_reply, ["email_id", "instructions"]),
     "draft_new": (_draft_new, ["recipient", "instructions"]),
     "send": (_send_email, ["draft_id"]),
+    "schedule_list": (_schedule_list, []),
+    "schedule_cancel": (_schedule_cancel, ["draft_id"]),
     "accounts": (_accounts_info, []),
     "search": (_search, ["query"]),
     "show_email": (_show_email, ["number"]),
     "delete": (_delete_email, ["number"]),
+    "block": (_block_sender, ["number"]),
+    "unsubscribe": (_unsubscribe, ["number"]),
     "grammar": (_grammar, ["text"]),
     "ask": (_ask, ["question"]),
     "recent": (_recent, ["count"]),

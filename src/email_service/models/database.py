@@ -146,8 +146,10 @@ class Draft(Base):
     original_email_id = Column(String, nullable=True)
     # for replies - keeps gmail thread
     thread_id = Column(String, nullable=True)
-    # draft or sent
+    # draft or sent or scheduled
     status = Column(String, nullable=False, default="draft")
+    #  None = send now, set = send at this time
+    scheduled_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.now)
 
 

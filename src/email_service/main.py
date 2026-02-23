@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from email_service.models.database import init_db, get_session, ImportJob
 from email_service.services.embeddings import init_vectorstore
 from email_service.routes import health, process, imports, telegram
+from email_service.services import send_scheduler
 from email_service.config import settings
 
 logging.basicConfig(level=logging.INFO)
@@ -21,9 +22,11 @@ async def lifespan(app: FastAPI):
     init_db()
     init_vectorstore()
     recover_stale_jobs()
+    send_scheduler.start_scheduler()
     logger.info("Email Service ready!")
     yield
     logger.info("Shutting down Email Service...")
+    send_scheduler.stop_scheduler()
 
 
 def recover_stale_jobs():
