@@ -1,0 +1,29 @@
+Personalize this email template for a specific recipient.
+
+--- TEMPLATE ---
+{{ template_body }}
+--- END TEMPLATE ---
+
+Recipient details:
+- Company: {{ company_name }}
+- Email: {{ to_address }}
+{% if contact_name %}- Contact person: {{ contact_name }}{% endif %}
+{% if company_info %}- About the company: {{ company_info }}{% endif %}
+
+{% if subject_template %}
+Subject template: {{ subject_template }}
+{% endif %}
+
+Rules:
+- Rewrite the template naturally for this specific recipient
+- Use the company name and contact name where appropriate
+- Incorporate the company info to show genuine knowledge of the company
+- Keep the same tone, length, and intent as the original template
+- Do not invent facts not provided in the recipient details
+- Do not add a signature (the user will add their own)
+
+Return ONLY valid JSON:
+{
+    "personalized_subject": "The subject line for this recipient",
+    "personalized_body": "The full personalized email body"
+}

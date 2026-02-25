@@ -2,12 +2,18 @@ import logging
 import re
 from datetime import datetime, timedelta
 
-from email_service.services import import_coordinator, gmail_client
+from email_service.services import import_coordinator, gmail_client, campaign_engine
 from email_service.services.search import hybrid_search
-from email_service.models.database import Email, Draft, get_session
+from email_service.models.database import (
+    Email,
+    Draft,
+    Campaign,
+    CampaignRecipient,
+    get_session,
+)
 
 from email_service.services import llm, embeddings
-from email_service.services.email_processor import _parse_json
+from email_service.services.utils import parse_json
 from email_service.services import chat_memory
 from pathlib import Path
 from jinja2 import Environment, FileSystemLoader
@@ -45,6 +51,15 @@ import pause (account)
 import resume (account)
 import status
 import history (account)
+campaign create (name) (template) [subject]
+campaign load (name) (csv_file)
+campaign personalize (name)
+campaign preview (name) [count]
+campaign status
+campaign results (name)
+campaign start (name)
+campaign pause (name)
+campaign resume (name)
 accounts
 help"""
 
@@ -95,6 +110,8 @@ def handle_command(text: str, chat_id: str | int = "") -> str:
         reply = _send_email(parts[1:])
     elif command == "schedule":
         reply = _handle_schedule(parts[1:])
+    elif command == "campaign":
+        reply = _handle_campaign(parts[1:])
     else:
         reply = _llm_route(text, chat_id_str)
 
@@ -588,7 +605,7 @@ def _ask(args: list[str], chat_id: str = "") -> str:
         emails=results, question=question, conversation_history=history_text
     )
     raw = llm.generate(prompt)
-    parsed = _parse_json(raw)
+    parsed = parse_json(raw)
 
     answer = parsed.get("answer", raw)
     confidence = parsed.get("confidence", "unknown")
@@ -684,7 +701,7 @@ def _draft_reply(args: list[str]) -> str:
     )
 
     raw = llm.generate(prompt)
-    parsed = _parse_json(raw)
+    parsed = parse_json(raw)
 
     reply_body = parsed.get("reply_body", raw)
     suggested_subject = parsed.get("suggested_subject", f"Re: {subject or ''}")
@@ -745,7 +762,7 @@ def _draft_new(args: list[str]) -> str:
     )
 
     raw = llm.generate(prompt)
-    parsed = _parse_json(raw)
+    parsed = parse_json(raw)
 
     email_body = parsed.get("email_body", raw)
     suggested_subject = parsed.get("suggested_subject", "")
@@ -959,6 +976,173 @@ def _schedule_cancel(args: list[str]) -> str:
         session.close()
 
 
+# --- Campaign ---
+def _handle_campaign(args: list[str]) -> str:
+    if not args:
+        return (
+            "Usage: campaign (action) ...\n"
+            "Actions: create, load, personalize, preview, status, results, start, pause, resume"
+        )
+
+    action = args[0].lower()
+
+    if action == "create":
+        return _campaign_create(args[1:])
+    if action == "load":
+        return _campaign_load(args[1:])
+    if action == "personalize":
+        return _campaign_personalize(args[1:])
+    if action == "preview":
+        return _campaign_preview(args[1:])
+    if action == "status":
+        return campaign_engine.get_all_campaigns_status()
+    if action == "results":
+        return _campaign_results(args[1:])
+    if action == "start":
+        return _campaign_start(args[1:])
+    if action == "pause":
+        return _campaign_pause(args[1:])
+    if action == "resume":
+        return _campaign_resume(args[1:])
+
+    return f"Unknown campaign action: {action}"
+
+
+def _campaign_create(args: list[str]) -> str:
+    if len(args) < 2:
+        return (
+            "Usage: campaign create (name) (template_file) [subject_template]\n"
+            "Example: campaign create winter2026 cover_letter.txt 'Application for {company_name}'"
+        )
+    name = args[0]
+    template_file = args[1]
+    subject_template = " ".join(args[2:]) if len(args) > 2 else None
+
+    return campaign_engine.create_campaign(name, template_file, subject_template)
+
+
+def _campaign_load(args: list[str]) -> str:
+    if len(args) < 2:
+        return (
+            "Usage: campaign load (name) (csv_file)\n"
+            "Example: campaign load winter2026 companies.csv"
+        )
+
+    name = args[0]
+    csv_path = args[1]
+
+    return campaign_engine.load_recipients(name, csv_path)
+
+
+def _campaign_personalize(args: list[str]) -> str:
+    if not args:
+        return "Usage: campaign personalize (name)\nExample: campaign personalize winter2026"
+
+    name = args[0]
+    return campaign_engine.personalize_campaign(name)
+
+
+def _campaign_preview(args: list[str]) -> str:
+    if not args:
+        return "Usage: campaign preview (name) [count]\nExample: campaign preview winter 2026 5"
+
+    name = args[0]
+    count = 3
+    if len(args) > 1:
+        try:
+            count = int(args[1])
+        except ValueError:
+            return f"Invalid count: {args[1]}"
+
+    return campaign_engine.preview_campaign(name, count)
+
+
+def _campaign_results(args: list[str]) -> str:
+    if not args:
+        return "Usage: campaign results (name)\nExample: campaign results winter 2026"
+    return campaign_engine.get_campaign_results(args[0])
+
+
+def _campaign_start(args: list[str]) -> str:
+    if not args:
+        return "Usage: campaign start(name)"
+
+    name = args[0]
+    session = get_session()
+    try:
+        campaign = session.query(Campaign).filter_by(name=name).first()
+        if not campaign:
+            return f"Campaign '{name}' not found"
+
+        if campaign.status == "running":
+            return f"Campaign '{name}' is already running"
+
+        # check there are personalized recipients to send
+        ready = (
+            session.query(CampaignRecipient)
+            .filter_by(campaign_id=campaign.id, status="personalized")
+            .count()
+        )
+        if ready == 0:
+            return f"No personalized recipients in '{name}'. Run: campaign personalize {name}"
+
+        campaign.status = "running"
+        session.commit()
+        return f"CAmpaign '{name}' started - {ready} emails queued to send"
+    finally:
+        session.close()
+
+
+def _campaign_pause(args: list[str]) -> str:
+    if not args:
+        return "Usage: campaign pause (name)"
+
+    name = args[0]
+    session = get_session()
+    try:
+        campaign = session.query(Campaign).filter_by(name=name).first()
+        if not campaign:
+            return f"Campaign '{name}' not found"
+
+        if campaign.status != "running":
+            return f"Campaign '{name}' is not running (status: {campaign.status})"
+
+        campaign.status = "paused"
+        session.commit()
+        return f"Cmapaign '{name}' paused"
+    finally:
+        session.close()
+
+
+def _campaign_resume(args: list[str]) -> str:
+    if not args:
+        return "Usage: campaign resume (name)"
+
+    name = args[0]
+    session = get_session()
+    try:
+        campaign = session.query(Campaign).filter_by(name=name).first()
+        if not campaign:
+            return f"Campaign '{name}' not found"
+
+        if campaign.status not in ("paused", "completed"):
+            return f"Campaign '{name}' cannot be resumed (status: {campaign.status})"
+
+        remaining = (
+            session.query(CampaignRecipient)
+            .filter_by(campaign_id=campaign.id, status="personalized")
+            .count()
+        )
+        if remaining == 0:
+            return f"No unsent recipients in '{name}'"
+
+        campaign.status = "running"
+        session.commit()
+        return f"Campaign '{name}' resumed — {remaining} emails remaining"
+    finally:
+        session.close()
+
+
 # dispatch table registry: intent name -> (handler_fn, param_keys)
 # must move it below all the functiona otherwise they won't be defined if I put this thing at the top
 INTENT_DISPATCH = {
@@ -982,6 +1166,18 @@ INTENT_DISPATCH = {
     "ask": (_ask, ["question"]),
     "recent": (_recent, ["count"]),
     "help": (lambda: HELP_TEXT, []),
+    "campaign_create": (
+        _campaign_create,
+        ["name", "template_file", "subject_template"],
+    ),
+    "campaign_load": (_campaign_load, ["name", "csv_file"]),
+    "campaign_personalize": (_campaign_personalize, ["name"]),
+    "campaign_preview": (_campaign_preview, ["name", "count"]),
+    "campaign_status": (campaign_engine.get_all_campaigns_status, []),
+    "campaign_results": (_campaign_results, ["name"]),
+    "campaign_start": (_campaign_start, ["name"]),
+    "campaign_pause": (_campaign_pause, ["name"]),
+    "campaign_resume": (_campaign_resume, ["name"]),
 }
 
 
@@ -989,7 +1185,7 @@ def _llm_route(text: str, chat_id: str) -> str:
     try:
         prompt = _classify_template.render(message=text)
         raw = llm.generate(prompt)
-        parsed = _parse_json(raw)
+        parsed = parse_json(raw)
 
         intent = parsed.get("intent", "chitchat")
         params = parsed.get("params", {})

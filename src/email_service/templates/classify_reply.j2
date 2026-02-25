@@ -1,0 +1,20 @@
+Classify this email reply to a campaign message.
+
+Campaign was sent to : {{ company_name }}{% if contact_name %} ({{ contact_name }}){% endif %}
+Recipient email: {{ to_address }}
+
+Reply body:
+{{ reply_body }}
+
+Classification:
+- interview: Positive response - invitation to interview, call, meeting, or next steps
+- rejection: Negative response - position filled, not a fit, no openings
+- follow_up: Neutral - asking for more info, clarifying questions, requesting documents
+- automated: Auto-reply - out of office, delivery notification, "we received your application"
+
+Return ONLY valid JSON:
+{
+    "classification": "interview | rejection | follow_up | automated",
+    "confidence": "high | medium | low",
+    "summary": "one sentence summary of the reply"
+}

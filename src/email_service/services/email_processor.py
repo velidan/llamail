@@ -11,6 +11,8 @@ from email_service.models.database import Email, EmailChunk, get_session
 from email_service.models.schemas import ProcessEmailRequest, ProcessEmailResponse
 from email_service.services import chunker, llm, token_budget
 from email_service.services import embeddings
+from email_service.services.utils import parse_json
+from email_service.services import campaign_engine
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +36,16 @@ def process_email(request: ProcessEmailRequest) -> ProcessEmailResponse:
         result = _process_single(request, email_id)
 
     result.processing_time_ms = int((time.time() - start) * 1000)
+
+    # check if this is a reply to a campaign email
+    if request.thread_id:
+        try:
+            campaign_engine.check_campaign_reply(
+                request.thread_id, request.body_text or ""
+            )
+        except Exception as e:
+            logger.warning(f"Campaign reply check failed: {e}")
+
     return result
 
 
@@ -76,7 +88,7 @@ def _process_single(
         parsed = {"summary": "Error: Empty prompt rendered", "category": "error"}
     else:
         raw = llm.generate(prompt)
-        parsed = _parse_json(raw)
+        parsed = parse_json(raw)
 
     tokens_used = token_budget.count_tokens(prompt)
 
@@ -139,7 +151,7 @@ def _process_chunked(
             continue
 
         raw = llm.generate(prompt)
-        parsed_chunk = _parse_json(raw)
+        parsed_chunk = parse_json(raw)
         summary = parsed_chunk.get("chunk_summary", raw)
         chunk_summaries.append(summary)
         tokens_used += token_budget.count_tokens(prompt)
@@ -155,7 +167,7 @@ def _process_chunked(
     )
 
     raw_master = llm.generate(master_prompt)
-    parsed_master = _parse_json(raw_master)
+    parsed_master = parse_json(raw_master)
 
     tokens_used += token_budget.count_tokens(master_prompt)
 
@@ -172,32 +184,6 @@ def _process_chunked(
         action_required=parsed_master.get("action_required", False),
         tokens_used=tokens_used,
     )
-
-
-# --- parse json from llm response ---
-def _parse_json(raw: str) -> dict:
-    text = raw.strip()
-    if text.startswith("```"):
-        text = text.split("\n", 1)[-1]
-    if text.endswith("```"):
-        text = text.rsplit("```", 1)[0]
-    text = text.strip()
-
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        pass
-
-    start = text.find("{")
-    end = text.rfind("}")
-    if start != -1 and end != -1:
-        try:
-            return json.loads(text[start : end + 1])
-        except json.JSONDecodeError:
-            pass
-
-    logger.warning(f"Failed to parse LLM JSON: {text[:200]}")
-    return {"summary": text}
 
 
 # --- save to sqlite ---

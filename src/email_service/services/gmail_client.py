@@ -4,6 +4,10 @@ import re
 from datetime import datetime
 from email.utils import parseaddr
 from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from email.mime.base import MIMEBase
+from email import encoders
+from pathlib import Path
 
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -114,11 +118,31 @@ def fetch_email(service, gmail_id: str) -> dict:
 
 
 def send_email(
-    service, to: str, subject: str, body: str, thread_id: str | None = None
+    service,
+    to: str,
+    subject: str,
+    body: str,
+    thread_id: str | None = None,
+    attachment_path: str | None = None,
 ) -> dict:
-    message = MIMEText(body)
-    message["to"] = to
-    message["subject"] = subject
+    if attachment_path:
+        message = MIMEMultipart()
+        message["to"] = to
+        message["subject"] = subject
+        message.attach(MIMEText(body))
+
+        path = Path(attachment_path)
+        with open(path, "rb") as f:
+            part = MIMEBase("application", "octet-stream")
+            part.set_payload(f.read())
+        encoders.encode_base64(part)
+        # the file must be downloable, not inline
+        part.add_header("Content-Disposition", f'attachment; filename="{path.name}"')
+        message.attach(part)
+    else:
+        message = MIMEText(body)
+        message["to"] = to
+        message["subject"] = subject
 
     raw = base64.urlsafe_b64encode(message.as_bytes()).decode("utf-8")
     send_body: dict = {"raw": raw}

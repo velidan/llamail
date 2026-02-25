@@ -20,6 +20,16 @@ Available intents:
 - ask: User wants to ask a question about their emails. Params: question (the full question)
 - recent: User wants to see latest processed emails. Params: count (number, default 5)
 - help: User wants to see available commands. Params: none
+- campaign_create: User wants to create a new email campaign. Params: name (campaign name), template_file (template filename), subject_template (optional subject line template)
+- campaign_load: User wants to load recipients from CSV into a campaign. Params: name (campaign name), csv_file (path to CSV)
+- campaign_personalize: User wants to personalize campaign emails with LLM. Params: name (campaign name)
+- campaign_preview: User wants to preview personalized campaign emails. Params: name (campaign name), count (optional number, default 3)
+- campaign_start: User wants to start sending a campaign. Params: name (campaign name)
+- campaign_pause: User wants to pause a running campaign. Params: name (campaign
+name)
+- campaign_resume: User wants to resume a paused campaign. Params: name (campaign name)
+- campaign_status: User wants to see all campaigns and their progress. Params: none
+- campaign_results: User wants to see detailed results for a campaign. Params: name (campaign name)
 - chitchat: Greetings, thanks, small talk, or anything that is NOT a real command. Params: none
 
 User message: {{ message }}

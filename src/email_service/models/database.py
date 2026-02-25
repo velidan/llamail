@@ -155,6 +155,61 @@ class Draft(Base):
     created_at = Column(DateTime, default=datetime.now)
 
 
+class Campaign(Base):
+    __tablename__ = "campaigns"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String, nullable=False, unique=True)
+    # draft, running, paused, completed
+    status = Column(String, nullable=False, default="draft")
+    template_file = Column(String, nullable=False)
+    subject_template = Column(String)
+    attachment_file = Column(String, nullable=True)
+    # emails per hour
+    send_rate = Column(Integer, default=50)
+
+    # counters
+    total_recipients = Column(Integer, default=0)
+    sent_count = Column(Integer, default=0)
+    reply_count = Column(Integer, default=0)
+    interview_count = Column(Integer, default=0)
+    rejection_count = Column(Integer, default=0)
+
+    created_at = Column(DateTime, default=datetime.now)
+
+
+class CampaignRecipient(Base):
+    __tablename__ = "campaign_recipients"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    campaign_id = Column(
+        Integer,
+        ForeignKey("campaigns.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    company_name = Column(String, nullable=False)
+    to_address = Column(String, nullable=False)
+    contact_name = Column(String, nullable=True)
+    company_info = Column(Text, nullable=True)
+
+    # LLM-personalized content
+    personalized_subject = Column(String, nullable=True)
+    personalized_body = Column(Text, nullable=True)
+
+    # pending -> personalized -> sent -> replied -> classified
+    status = Column(String, nullable=False, default="pending")
+    # interview, rejection, follow_up, automated, ghosted
+    reply_classification = Column(String, nullable=True)
+
+    sent_at = Column(DateTime, nullable=True)
+    replied_at = Column(DateTime, nullable=True)
+    gmail_message_id = Column(String, nullable=True)
+    gmail_thread_id = Column(String, nullable=True)
+
+    created_at = Column(DateTime, default=datetime.now)
+
+
 # --- Engine & sesion ---
 def get_engine():
     settings.db_path.parent.mkdir(parents=True, exist_ok=True)

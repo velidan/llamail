@@ -40,5 +40,13 @@ class Settings(BaseSettings):
     # seconds between polls
     scheduler_check_interval: int = 30
 
+    campaigns_dir: Path = Path("campaigns")
+    # emails per hour
+    campaign_send_rate: int = 50
+    # seconds between send loop polls
+    campaign_check_interval: int = 30
+    telegram_bot_token: str = ""
+    telegram_chat_id: str = ""
+
 
 settings = Settings()
