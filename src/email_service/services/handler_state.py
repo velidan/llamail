@@ -19,3 +19,11 @@ def resolve_email_ref(ref: str) -> str:
     if cleaned and int(cleaned) in _last_results:
         return _last_results[int(cleaned)]
     return ref
+
+
+def clear_results():
+    _last_results.clear()
+
+
+def set_result(index: int, email_id: str):
+    _last_results[index] = email_id
