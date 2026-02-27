@@ -11,7 +11,7 @@ Available intents:
 - draft_new: User wants to compose a new email from scratch. Params: recipient (email address), instructions (what to write about)
 - send: User wants to send a previously drafted email. Params: draft_id (optional number, omit to send the last draft)
 - accounts: User wants to see connected email accounts. Params: none
-- search: User wants to find emails by keyword or topic. Params: query (search text)
+- search: User wants to find emails by keyword or topic. Params: query (search text), after_date (optional, ISO date like "2026-02-18" — extract from phrases like "last week", "past 3 days", "since Monday". Today is {{ today }}. Omit if no time reference.)
 - show_email: User wants to see the full content of a specific email. Params: number (the email number from search/recent results)
 - delete: User wants to delete or trash an email. Params: number (the email number from search/recent results)
 - block: User wants to block a sender so future emails are auto-trashed. Params: number (the email number from search/recent results)

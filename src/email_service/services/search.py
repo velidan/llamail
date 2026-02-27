@@ -1,5 +1,6 @@
 import json
 import logging
+from datetime import datetime
 from sqlalchemy import text
 
 from email_service.models.database import Email, get_session
@@ -9,12 +10,15 @@ logger = logging.getLogger(__name__)
 
 
 def hybrid_search(
-    query: str, max_results: int = 10, account_id: str | None = None
+    query: str,
+    max_results: int = 10,
+    account_id: str | None = None,
+    after_date: datetime | None = None,
 ) -> list[dict]:
-    semantic_hits = _semantic_search(query, n=max_results, account_id=account_id)
-    fts_hits = _fts_search(query, limit=max_results)
-    merged = _merge_results(semantic_hits, fts_hits, max_results)
-    return _enrich(merged)
+    semantic_hits = _semantic_search(query, n=max_results * 2, account_id=account_id)
+    fts_hits = _fts_search(query, limit=max_results * 2)
+    merged = _merge_results(semantic_hits, fts_hits, max_results * 2)
+    return _enrich(merged, max_results=max_results, after_date=after_date)
 
 
 def _semantic_search(
@@ -81,7 +85,11 @@ def _merge_results(
     return scored[:max_results]
 
 
-def _enrich(results: list[tuple[str, float]]) -> list[dict]:
+def _enrich(
+    results: list[tuple[str, float]],
+    max_results: int = 10,
+    after_date: datetime | None = None,
+) -> list[dict]:
     if not results:
         return []
 
@@ -94,6 +102,8 @@ def _enrich(results: list[tuple[str, float]]) -> list[dict]:
 
         email_map = {}
         for e in emails:
+            if after_date and e.received_at and e.received_at < after_date:
+                continue
             email_map[e.id] = {
                 "email_id": e.id,
                 "from_address": e.from_address,

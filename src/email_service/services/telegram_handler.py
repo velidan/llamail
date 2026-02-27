@@ -31,37 +31,39 @@ _grammar_template = _env.get_template("grammar.j2")
 
 HELP_TEXT = """Available commands:
 
-search (query)
-ask (question)
-recent [count]
-show (number)
-delete (number)
-block (number)
-unsubscribe (number)
-grammar (text)
-draft reply (email_id) (instructions)
-draft new (recipient) (instructions)
-send [draft_id]
-send [draft_id] at HH:MM
-send [draft_id] in 2h30m
-schedule list
-schedule cancel (draft_id)
-import start (account) [count|all]
-import pause (account)
-import resume (account)
-import status
-import history (account)
-campaign create (name) (template) [subject]
-campaign load (name) (csv_file)
-campaign personalize (name)
-campaign preview (name) [count]
-campaign status
-campaign results (name)
-campaign start (name)
-campaign pause (name)
-campaign resume (name)
-accounts
-help"""
+/search (query)
+/ask (question)
+/recent [count]
+/show (number)
+/delete (number)
+/block (number)
+/unsubscribe (number)
+/grammar (text)
+/draft reply (email_id) (instructions)
+/draft new (recipient) (instructions)
+/send [draft_id]
+/send [draft_id] at HH:MM
+/send [draft_id] in 2h30m
+/schedule list
+/schedule cancel (draft_id)
+/import start (account) [count|all]
+/import pause (account)
+/import resume (account)
+/import status
+/import history (account)
+/campaign create (name) (template) [subject]
+/campaign load (name) (csv_file)
+/campaign personalize (name)
+/campaign preview (name) [count]
+/campaign start (name)
+/campaign pause (name)
+/campaign resume (name)
+/campaign status
+/campaign results (name)
+/accounts
+/help
+
+Or just type naturally — I'll understand."""
 
 CHITCHAT_RESPONSES = [
     "I'm here to help with your emails. Type 'help' to see what I can do."
@@ -74,44 +76,50 @@ _last_draft_id: int | None = None
 def handle_command(text: str, chat_id: str | int = "") -> str:
     text = text.strip()
     if not text:
-        return "Empty message. Type 'help' for commands."
+        return "Empty message. Type '/help' for commands."
 
     chat_id_str = str(chat_id)
     chat_memory.save_message(chat_id_str, "user", text)
 
-    parts = text.split()
-    command = parts[0].lower()
+    # Slash prefix = exact command, bare text = NLP route
+    if text.startswith("/"):
+        # strip the "/"
+        command_text = text[1:]
+        parts = command_text.split()
+        command = parts[0].lower()
 
-    if command == "help":
-        reply = HELP_TEXT
-    elif command == "accounts":
-        reply = _accounts_info()
-    elif command == "search":
-        reply = _search(parts[1:])
-    elif command == "recent":
-        reply = _recent(parts[1:])
-    elif command == "import":
-        reply = _handle_import(parts[1:])
-    elif command == "show":
-        reply = _show_email(parts[1:])
-    elif command == "delete":
-        reply = _delete_email(parts[1:])
-    elif command == "block":
-        reply = _block_sender(parts[1:])
-    elif command == "unsubscribe":
-        reply = _unsubscribe(parts[1:])
-    elif command == "grammar":
-        reply = _grammar(parts[1:])
-    elif command == "ask":
-        reply = _ask(parts[1:], chat_id_str)
-    elif command == "draft":
-        reply = _handle_draft(parts[1:])
-    elif command == "send":
-        reply = _send_email(parts[1:])
-    elif command == "schedule":
-        reply = _handle_schedule(parts[1:])
-    elif command == "campaign":
-        reply = _handle_campaign(parts[1:])
+        if command == "help":
+            reply = HELP_TEXT
+        elif command == "accounts":
+            reply = _accounts_info()
+        elif command == "search":
+            reply = _search(parts[1:])
+        elif command == "recent":
+            reply = _recent(parts[1:])
+        elif command == "import":
+            reply = _handle_import(parts[1:])
+        elif command == "show":
+            reply = _show_email(parts[1:])
+        elif command == "delete":
+            reply = _delete_email(parts[1:])
+        elif command == "block":
+            reply = _block_sender(parts[1:])
+        elif command == "unsubscribe":
+            reply = _unsubscribe(parts[1:])
+        elif command == "grammar":
+            reply = _grammar(parts[1:])
+        elif command == "ask":
+            reply = _ask(parts[1:], chat_id_str)
+        elif command == "draft":
+            reply = _handle_draft(parts[1:])
+        elif command == "send":
+            reply = _send_email(parts[1:])
+        elif command == "schedule":
+            reply = _handle_schedule(parts[1:])
+        elif command == "campaign":
+            reply = _handle_campaign(parts[1:])
+        else:
+            reply = f"Unknown command: /{command}\nType /help for available commands."
     else:
         reply = _llm_route(text, chat_id_str)
 
@@ -317,10 +325,19 @@ def _accounts_info() -> str:
 
 def _search(args: list[str]) -> str:
     if not args:
-        return "Please provide a search query.\nExample: search budget Q2"
+        return "Please provide a search query.\nExample: /search budget Q2"
+
+    # check if last arg looks like a date (from LLM intent extraction)
+    after_date = None
+    if len(args) >= 2:
+        try:
+            after_date = datetime.fromisoformat(args[-1])
+            args = args[:-1]  # remove date from query
+        except ValueError:
+            pass
 
     query = " ".join(args)
-    results = hybrid_search(query, max_results=5)
+    results = hybrid_search(query, max_results=5, after_date=after_date)
 
     if not results:
         return f"No results found for: {query}"
@@ -389,8 +406,8 @@ def _show_email(args: list[str]) -> str:
     if not args:
         return "Usage: show (number)\nExample: show 1 (after search or recent)"
 
-    ref = args[0]
-    if ref.isdigit() and int(ref) in _last_results:
+    ref = re.sub(r"\D", "", args[0])  # strip non-digits like parentheses
+    if ref and ref.isdigit() and int(ref) in _last_results:
         email_id = _last_results[int(ref)]
     else:
         email_id = ref
@@ -610,11 +627,15 @@ def _ask(args: list[str], chat_id: str = "") -> str:
     answer = parsed.get("answer", raw)
     confidence = parsed.get("confidence", "unknown")
 
-    lines = [f"{answer}\n", f"Confidence: {confidence}", f"Sources ({len(results)}):"]
-    for i, r in enumerate(results, 1):
-        sender = r["from_name"] or r["from_address"]
-        subject = r["subject"] or "(no subject)"
-        lines.append(f"   [{i}] {subject} - {sender}")
+    lines = [f"{answer}\n", f"Confidence: {confidence}"]
+    # only show sources above relevance threshold
+    good_sources = [(i, r) for i, r in enumerate(results, 1) if r["score"] > 0.3]
+    if good_sources:
+        lines.append(f"Sources ({len(good_sources)}):")
+        for i, r in good_sources:
+            sender = r["from_name"] or r["from_address"]
+            subject = r["subject"] or "(no subject)"
+            lines.append(f"   [{i}] {subject} - {sender}")
 
     return "\n".join(lines)
 
@@ -1157,7 +1178,7 @@ INTENT_DISPATCH = {
     "schedule_list": (_schedule_list, []),
     "schedule_cancel": (_schedule_cancel, ["draft_id"]),
     "accounts": (_accounts_info, []),
-    "search": (_search, ["query"]),
+    "search": (_search, ["query", "after_date"]),
     "show_email": (_show_email, ["number"]),
     "delete": (_delete_email, ["number"]),
     "block": (_block_sender, ["number"]),
@@ -1183,7 +1204,9 @@ INTENT_DISPATCH = {
 
 def _llm_route(text: str, chat_id: str) -> str:
     try:
-        prompt = _classify_template.render(message=text)
+        prompt = _classify_template.render(
+            message=text, today=datetime.now().strftime("%Y-%m-%d")
+        )
         raw = llm.generate(prompt)
         parsed = parse_json(raw)
 
