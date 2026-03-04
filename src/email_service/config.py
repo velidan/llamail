@@ -47,6 +47,8 @@ class Settings(BaseSettings):
     campaign_check_interval: int = 30
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""
+    # the default gmail account you want to work with.
+    default_account: str = ""
 
 
 settings = Settings()

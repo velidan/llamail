@@ -6,6 +6,7 @@ import logging
 import threading
 
 from email_service.services import import_coordinator, gmail_client, import_worker
+from email_service.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -190,7 +191,7 @@ def account_info() -> str:
 
         return (
             f"Connected account:\n\n"
-            f"sviatoslavbarbutsa@gmail.com\n"
+            f"{settings.default_account}\n"
             f"    Total emails on server: {total}\n"
             f"    Imported so far: {imported}"
         )
