@@ -81,7 +81,7 @@ def import_start(args: list[str]) -> str:
         try:
             max_emails = int(args[1])
         except ValueError:
-            return f"Invalid count: {args[1]}. Must be a number of 'all'"
+            return f"Invalid count: {args[1]}. Must be a number or 'all'"
 
     try:
         job = import_coordinator.create_job(account_id, max_emails)

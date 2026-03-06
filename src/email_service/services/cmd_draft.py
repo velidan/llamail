@@ -13,8 +13,6 @@ from jinja2 import Environment, FileSystemLoader
 from email_service.models.database import Email, Draft, get_session
 from email_service.services import llm, gmail_client
 from email_service.services.handler_state import (
-    _last_results,
-    _last_draft_id,
     resolve_email_ref,
 )
 from email_service.services.utils import parse_json
