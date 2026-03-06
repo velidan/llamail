@@ -144,7 +144,7 @@ def show_email(args: list[str]) -> str:
                 names = ", ".join(a["filename"] for a in att_list)
                 attachments_line = f"Attachments: {names}\n"
 
-        max_body = 4096 - len(header) - len(attachments_line) - 20
+        max_body = 4000 - len(header) - len(attachments_line)
         if len(body) > max_body:
             body = body[:max_body] + "\n...{truncated}"
 
