@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 __template_dir = Path(__file__).parent.parent / "templates"
 _env = Environment(loader=FileSystemLoader(str(__template_dir)))
 _ask_template = _env.get_template("ask.j2")
-_chitchat_template = _env.get_template("shitchat.j2")
+_chitchat_template = _env.get_template("chitchat.j2")
 _grammar_template = _env.get_template("grammar.j2")
 
 
@@ -45,7 +45,7 @@ def search(args: list[str]) -> str:
     results = hybrid_search(query, max_results=5, after_date=after_date)
 
     if not results:
-        f"No results found for: {query}"
+        return f"No results found for: {query}"
 
     clear_results()
     lines = [f"Search results for: {query}\n"]
@@ -60,7 +60,7 @@ def search(args: list[str]) -> str:
         score_pct = int(r["score"] * 100)
 
         lines.append(
-            f"[(i)]. [{score_pct}%] {subject}\n"
+            f"[{i}]. [{score_pct}%] {subject}\n"
             f"    From: {sender} | {date}\n"
             f"    {summary}"
         )
@@ -90,7 +90,7 @@ def recent(args: list[str]) -> str:
         lines = [f"Last {len(emails)} emails:\n"]
         for i, e in enumerate(emails, 1):
             set_result(i, e.id)
-            date = e.received_at.strftime("%Y-%m-%d %H:5M") if e.received_at else "?"
+            date = e.received_at.strftime("%Y-%m-%d %H:%M") if e.received_at else "?"
             sender = e.from_name or e.from_address
             subject = e.subject or "(no subject)"
             category = e.category or "?"
@@ -151,7 +151,7 @@ def show_email(args: list[str]) -> str:
 
 def delete_email(args: list[str]) -> str:
     if not args:
-        return "Usage: delete (number)\mExample: delete 3 (after search or recent)"
+        return "Usage: delete (number)\nExample: delete 3 (after search or recent)"
 
     email_id = resolve_email_ref(args[0])
 
@@ -233,7 +233,7 @@ def unsubscribe(args: list[str]) -> str:
         service = gmail_client.get_gmail_service()
         info = gmail_client.get_unsubscribe_info(service, gmail_id)
     except Exception as e:
-        logger.error("Unsubscribe lookup failed: {e}")
+        logger.error(f"Unsubscribe lookup failed: {e}")
         return f"Failed to check unsubscribe info: {e}"
 
     if not info["found"]:
@@ -274,9 +274,9 @@ def unsubscribe(args: list[str]) -> str:
     )
 
 
-def gramar(args: list[str]) -> str:
+def grammar(args: list[str]) -> str:
     if not args:
-        return "Usage: gramar (text)\nExample: gramar I wants to meeting on tuesday"
+        return "Usage: grammar (text)\nExample: gramar I wants to meeting on tuesday"
 
     text = " ".join(args)
     prompt = _grammar_template.render(text=text)
