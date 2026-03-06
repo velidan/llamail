@@ -1,6 +1,6 @@
 """
 Telegram command router.
-Parses /slash commands and routers natural language via LLM intent classification.
+Parses /slash commands and handles natural language via LLM intent classification.
 All handler logic lives in cmd_*.py modules
 """
 
@@ -10,7 +10,7 @@ from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader
 
-from email_service.services import llm, chat_memory
+from email_service.services import llm, chat_memory, telegram_notifier
 from email_service.services.utils import parse_json
 
 from email_service.services.cmd_import import (
@@ -101,6 +101,8 @@ HELP_TEXT = """Available commands:
 
 or just type naturally - I'll understand."""
 
+# just direct commands without / that have the defined commands so it's possible just to execute them as is bypassing LLM for speed
+_DIRECT_COMMANDS = {"import", "draft", "campaign", "schedule"}
 
 COMMAND_DISPATCH = {
     "help": (lambda *_: HELP_TEXT, False),
@@ -129,11 +131,20 @@ def handle_command(text: str, chat_id: str | int = "") -> str:
     chat_id_str = str(chat_id)
     chat_memory.save_message(chat_id_str, "user", text)
 
+    # parses a command : /command always, direct word only if they are supported
+    command = None
     if text.startswith("/"):
         parts = text[1:].split()
         command = parts[0].lower()
         other_args = parts[1:]
+    else:
+        parts = text.split()
+        first_word = parts[0].lower()
+        if first_word in _DIRECT_COMMANDS:
+            command = first_word
+            other_args = parts[1:]
 
+    if command:
         handler_info = COMMAND_DISPATCH.get(command)
         if handler_info:
             handler, needs_chat_id = handler_info
@@ -185,6 +196,8 @@ INTENT_DISPATCH = {
 
 def _llm_route(text: str, chat_id: str) -> str:
     try:
+        telegram_notifier.notify("Analyzing your message...")
+
         prompt = _classify_template.render(
             message=text, today=datetime.now().strftime("%Y-%m-%d")
         )
