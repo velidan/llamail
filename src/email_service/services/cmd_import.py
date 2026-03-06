@@ -6,6 +6,7 @@ import logging
 import threading
 
 from email_service.services import import_coordinator, gmail_client, import_worker
+from email_service.models.database import get_session
 from email_service.config import settings
 
 logger = logging.getLogger(__name__)
@@ -45,12 +46,26 @@ def import_status() -> str:
         if acct not in latest:
             latest[acct] = job
 
+    session = get_session()
+    try:
+        from email_service.models.database import Email
+        from sqlalchemy import func
+
+        account_counts = dict(
+            session.query(Email.account_id, func.count(Email.id))
+            .group_by(Email.account_id)
+            .all()
+        )
+    finally:
+        session.close()
+
     lines = ["Import status:\n"]
     for acct, job in latest.items():
         total = job["total_emails"]
         done = job["processed_count"]
         failed = job["failed_count"]
         skipped = job["skipped_count"]
+        total_in_db = account_counts.get(acct, 0)
 
         if total > 0:
             pct = int((done + skipped) / total * 100)
@@ -66,7 +81,7 @@ def import_status() -> str:
 
         lines.append(
             f"[{status_icon}] {acct}\n"
-            f"      {done}/{total} processed, {failed} failed, {skipped} skipped  ({pct}%)"
+            f"      Total in DB: {total_in_db} | This job: {done} new, {skipped} already imported, {failed} failed ({pct}%)"
         )
     return "\n".join(lines)
 
