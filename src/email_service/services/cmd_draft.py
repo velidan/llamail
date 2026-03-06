@@ -12,9 +12,7 @@ from jinja2 import Environment, FileSystemLoader
 
 from email_service.models.database import Email, Draft, get_session
 from email_service.services import llm, gmail_client
-from email_service.services.handler_state import (
-    resolve_email_ref,
-)
+from email_service.services.handler_state import resolve_email_ref, RefNotFoundError
 from email_service.services.utils import parse_json
 from email_service.config import settings
 
@@ -54,7 +52,11 @@ def draft_reply(args: list[str]) -> str:
             "Example: draft reply 1 agree but suggest Thursday"
         )
 
-    email_id = resolve_email_ref(args[0])
+    try:
+        email_id = resolve_email_ref(args[0])
+    except RefNotFoundError as e:
+        return str(e)
+
     instructions = " ".join(args[1:])
 
     session = get_session()

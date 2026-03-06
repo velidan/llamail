@@ -106,7 +106,7 @@ _DIRECT_COMMANDS = {"import", "draft", "campaign", "schedule"}
 
 COMMAND_DISPATCH = {
     "help": (lambda *_: HELP_TEXT, False),
-    "accounts": (account_info, False),
+    "accounts": (lambda *_: account_info(), False),
     "search": (search, False),
     "recent": (recent, False),
     "import": (handle_import, False),

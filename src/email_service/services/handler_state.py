@@ -13,11 +13,24 @@ _last_results: dict[int, str] = {}
 _last_draft_id: int | None = None
 
 
+class RefNotFoundError(Exception):
+    pass
+
+
 def resolve_email_ref(ref: str) -> str:
     """Resolve a number ailas or raw email ID from the user input."""
     cleaned = re.sub(r"\D", "", ref)
-    if cleaned and int(cleaned) in _last_results:
-        return _last_results[int(cleaned)]
+    if cleaned:
+        num = int(cleaned)
+        if num in _last_results:
+            return _last_results[num]
+        if not _last_results:
+            raise RefNotFoundError(
+                "No results to reference. Run /recent or /search first, then use the number."
+            )
+        raise RefNotFoundError(
+            f"Number [{num}] not in results. Available: 1-{max(_last_results.keys())}"
+        )
     return ref
 
 

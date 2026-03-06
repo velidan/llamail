@@ -16,6 +16,7 @@ from email_service.services.handler_state import (
     clear_results,
     set_result,
     resolve_email_ref,
+    RefNotFoundError,
 )
 from email_service.services.search import hybrid_search
 from email_service.services.utils import parse_json
@@ -111,7 +112,10 @@ def show_email(args: list[str]) -> str:
     if not args:
         return "Usage: show (number)\nExample: show 1 (after search or recent)"
 
-    email_id = resolve_email_ref(args[0])
+    try:
+        email_id = resolve_email_ref(args[0])
+    except RefNotFoundError as e:
+        return str(e)
 
     session = get_session()
     try:
@@ -153,7 +157,10 @@ def delete_email(args: list[str]) -> str:
     if not args:
         return "Usage: delete (number)\nExample: delete 3 (after search or recent)"
 
-    email_id = resolve_email_ref(args[0])
+    try:
+        email_id = resolve_email_ref(args[0])
+    except RefNotFoundError as e:
+        return str(e)
 
     session = get_session()
     try:
@@ -188,7 +195,10 @@ def block_sender(args: list[str]) -> str:
     if not args:
         return "Usage: block (number)\nExample: block 3 (after search or recent)"
 
-    email_id = resolve_email_ref(args[0])
+    try:
+        email_id = resolve_email_ref(args[0])
+    except RefNotFoundError as e:
+        return str(e)
 
     session = get_session()
     try:
@@ -215,7 +225,10 @@ def unsubscribe(args: list[str]) -> str:
     if not args:
         return "Usage: unsubscribe (number)\nExample: unsubscribe 3 (after search or recent)"
 
-    email_id = resolve_email_ref(args[0])
+    try:
+        email_id = resolve_email_ref(args[0])
+    except RefNotFoundError as e:
+        return str(e)
 
     session = get_session()
     try:
