@@ -1,9 +1,0 @@
-Metadata-Version: 2.4
-Name: email-assistant
-Version: 2.0.0
-Requires-Python: >=3.11
-Requires-Dist: fastapi>=0.100.0
-Requires-Dist: uvicorn>=0.20.0
-Requires-Dist: ollama>=0.1.0
-Requires-Dist: chromadb>=0.4.0
-Requires-Dist: sqlalchemy>=2.0.0

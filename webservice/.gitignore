@@ -1,0 +1,6 @@
+credentials/
+data/
+__pycache__/
+*.egg-info/
+*.pyc
+.env

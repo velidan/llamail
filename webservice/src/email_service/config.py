@@ -33,7 +33,10 @@ class Settings(BaseSettings):
 
     gmail_credentials_path: Path = Path("credentials/client_secret.json")
     gmail_token_path: Path = Path("credentials/token.json")
-    gmail_scopes: list[str] = ["https://mail.google.com/"]
+    gmail_scopes: list[str] = [
+        "https://mail.google.com/",
+        "https://www.googleapis.com/auth/gmail.settings.basic",
+    ]
     import_batch_size: int = 50
     import_max_retries: int = 3
 

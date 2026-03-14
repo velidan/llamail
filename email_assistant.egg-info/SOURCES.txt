@@ -1,6 +1,0 @@
-pyproject.toml
-email_assistant.egg-info/PKG-INFO
-email_assistant.egg-info/SOURCES.txt
-email_assistant.egg-info/dependency_links.txt
-email_assistant.egg-info/requires.txt
-email_assistant.egg-info/top_level.txt

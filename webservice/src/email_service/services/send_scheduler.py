@@ -5,7 +5,7 @@ from datetime import datetime
 
 from email_service.config import settings
 from email_service.models.database import Draft, get_session
-from email_service.services import gmail_client
+from email_service.services import gmail_client, telegram_notifier
 
 
 logger = logging.getLogger(__name__)
@@ -75,6 +75,11 @@ def _process_due_drafts():
                 )
                 draft.status = "sent"
                 logger.info(f"Scheduled draft #{draft.id} sent to {draft.to_address}")
+                telegram_notifier.notify(
+                    f"Scheduled email sent!\n"
+                    f"To: {draft.to_address}\n"
+                    f"Subject: {draft.subject or '(no subject)'}"
+                )
             except Exception as e:
                 logger.error(f"failed to send scheduled draft #{draft.id}: {e}")
 
