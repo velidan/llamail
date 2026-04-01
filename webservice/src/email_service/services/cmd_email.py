@@ -1,4 +1,4 @@
-"""
+﻿"""
 Email commands for tg handler:
 search, recent, show, ask, delete, block, unsubscribe, gramar, chitchat
 """
@@ -333,13 +333,24 @@ def ask(args: list[str], chat_id: str = "") -> str:
 def chitchat(text: str, chat_id: str) -> str:
     try:
         history = chat_memory.get_recent(chat_id)
+        # The current user message is already saved before routing. Should exclude it frm prompt history and the model see the latest request only once
+        if (
+            history
+            and history[-1]["role"] == "user"
+            and history[-1]["content"].strip() == text.strip()
+        ):
+            history = history[:-1]
         history_text = chat_memory.format_for_prompt(history)
 
         prompt = _chitchat_template.render(
             message=text, conversation_history=history_text
         )
+        # logger.info("CHITCHAT PROMPT:\n%s", prompt)
+        # res = llm.generate(prompt, json_mode=False)
+        # logger.info("CHITCHAT RESPONSE:\n%s", res)
+        # return res
 
         return llm.generate(prompt, json_mode=False)
     except Exception as e:
         logger.error(f"Chitchat failed: {e}")
-        return "...System nominal. How may I assist you, Operator"
+        return "Systems nominal. How may I assist you, Lead?"
