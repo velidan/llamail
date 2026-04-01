@@ -341,4 +341,6 @@ sqlite3 webservice/data/emails.db "DELETE FROM emails; DELETE FROM email_chunks;
 
 ---
 
+The default persona is inspired by 2B from NieR: Automata (Square Enix). This project is not affiliated with or endorsed by Square Enix.
+
 *Code handcrafted with ☕, not vibecoded.*
