@@ -1,6 +1,6 @@
 # llamail
 
-Your private email agent, running locally. Control your inbox from Telegram — RAG search, drafts, campaigns. Runs on consumer hardware. Zero cloud, zero monthly bills.
+Your private email agent, running locally. Control your inbox from Telegram — RAG search, drafts, campaigns, and a persistent synthetic persona. Runs on consumer hardware. Zero cloud, zero monthly bills.
 
 ## Architecture
 
@@ -196,7 +196,7 @@ You don't have to use exact commands. Free-form text goes through LLM intent cla
 - "block this sender" / "stop emails from them" --> `block`
 - "unsubscribe from this newsletter" --> `unsubscribe`
 - "how's my campaign doing?" --> `campaign status`
-- "hey" / "thanks" --> chitchat (2B persona from NieR: Automata)
+- "hey" / "thanks" --> chitchat (Sable synthetic persona)
 
 **Note:** Compound commands like `import start`, `draft reply`, `campaign create`, and `schedule at` bypass the LLM entirely — they're matched instantly by the first word. You'll see "Analyzing your message..." only for true natural language that needs LLM classification.
 
@@ -308,7 +308,7 @@ webservice/src/email_service/
     summarize_master.j2      # Combine chunk summaries
     classify_intent.j2       # NL intent classification
     ask.j2                   # RAG Q&A prompt
-    chitchat.j2              # 2B persona prompt
+    chitchat.j2              # Sable persona prompt
     draft_reply.j2           # Reply draft generation
     draft_new.j2             # New email composition
     grammar.j2               # Grammar/spelling correction
@@ -341,6 +341,6 @@ sqlite3 webservice/data/emails.db "DELETE FROM emails; DELETE FROM email_chunks;
 
 ---
 
-The default persona is inspired by 2B from NieR: Automata (Square Enix). This project is not affiliated with or endorsed by Square Enix.
+The default persona is Sable: a cold, synthetic voice built specifically for this project.
 
-*Code handcrafted with ☕, not vibecoded.*
+*Code handcrafted, not vibecoded.*
