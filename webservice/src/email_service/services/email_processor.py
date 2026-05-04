@@ -56,6 +56,18 @@ def _build_gmail_link(rfc822_message_id: str | None) -> str | None:
     return f"https://mail.google.com/mail/u/0/#search/rfc822msgid%3A{quote(clean_id)}"
 
 
+def _build_embed_text(request: ProcessEmailRequest, summary: str | None) -> str:
+    embed_text = (
+        f"From: {request.from_name or 'Unknown'}\n"
+        f"Subject: {request.subject}\n"
+        f"Summary: {summary or ''}"
+    )
+    if request.attachments:
+        filenames = ", ".join(a["filename"] for a in request.attachments)
+        embed_text += f"\nAttachments: {filenames}"
+    return embed_text
+
+
 # --- single email path (short mail) ---
 def _process_single(
     request: ProcessEmailRequest, email_id: str
@@ -92,14 +104,7 @@ def _process_single(
 
     tokens_used = token_budget.count_tokens(prompt)
 
-    embed_text = (
-        f"From: {request.from_name or 'Unknown'}\n"
-        f"Subject: {request.subject}\n"
-        f"Summary: {parsed.get('summary','')}"
-    )
-    if request.attachments:
-        filenames = ", ".join(a["filename"] for a in request.attachments)
-        embed_text += f"\nAttachments: {filenames}"
+    embed_text = _build_embed_text(request, parsed.get("summary"))
     embeddings.store(
         doc_id=email_id,
         text=embed_text,
@@ -171,6 +176,18 @@ def _process_chunked(
 
     tokens_used += token_budget.count_tokens(master_prompt)
 
+    embed_text = _build_embed_text(request, parsed_master.get("summary"))
+    embeddings.store(
+        doc_id=email_id,
+        text=embed_text,
+        metadata={
+            "account_id": request.account_id,
+            "from_address": request.from_address,
+            "subject": request.subject or "",
+            "type": "email",
+        },
+    )
+
     _save_email(
         request, email_id, parsed_master, is_chunked=True, chunk_count=len(chunks)
     )
@@ -213,7 +230,7 @@ def _save_email(request, email_id, parsed, is_chunked=False, chunk_count=0):
             attachments=(
                 json.dumps(request.attachments) if request.attachments else None
             ),
-            has_embedding=True,
+            has_embedding=bool(parsed.get("summary")),
             is_chunked=is_chunked,
             chunk_count=chunk_count,
         )
@@ -234,7 +251,7 @@ def _save_chunk(email_id, chunk, summary):
             start_char=chunk["start_char"],
             end_char=chunk["end_char"],
             summary=summary,
-            has_embedding=True,
+            has_embedding=False,
         )
         session.add(db_chunk)
         session.commit()
